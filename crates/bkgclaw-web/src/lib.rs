@@ -10,7 +10,6 @@
 //! The UI is deliberately server-thin: no state lives here that the
 //! gateway does not already own. Reload the page, and everything is back.
 
-use dioxus::prelude::*;
 use serde::Deserialize;
 
 // The wire contract, imported from the crate that owns it. This used to be a

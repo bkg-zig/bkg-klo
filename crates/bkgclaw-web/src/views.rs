@@ -3,7 +3,6 @@
 use crate::net;
 use crate::{ApprovalDecision, Cockpit, Panel, TranscriptItem, WireClient, WireEvent};
 use dioxus::prelude::*;
-use serde_json::json;
 
 #[component]
 pub fn App() -> Element {
