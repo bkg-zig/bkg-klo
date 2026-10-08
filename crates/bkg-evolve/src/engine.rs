@@ -45,6 +45,12 @@ pub struct EvolveOptions {
     /// Run the WORK phase inside the Landlock write-jail: the agent may
     /// write only this tree. Fail-closed — a refused jail refuses the
     /// cycle, an unsandboxed work phase is not an option.
+    ///
+    /// Defaults to **true**. This is the one switch that decides whether an
+    /// unattended daemon is safe: with the jail, a worker's `rm -rf` reaches
+    /// this repository and nothing else; without it, `Policy::AllowAll` is an
+    /// open door. Leaving this off by default would have meant every daemon
+    /// anyone started was running wide open until somebody noticed.
     pub jail: bool,
 }
 
@@ -55,9 +61,15 @@ impl Default for EvolveOptions {
             origin: None,
             lesson_count: 5,
             strict: false,
-            jail: false,
+            jail: default_true(),
         }
     }
+}
+
+/// Serde's idea of "this field was absent" is a default, and for a safety
+/// switch the safe answer is the only sensible one.
+fn default_true() -> bool {
+    true
 }
 
 /// The outcome the caller (CLI, gateway, UI) reports.
@@ -118,6 +130,29 @@ Regeln für diesen Lauf:
         prompt.push_str(&lessons.join("\n"));
     }
     prompt
+}
+
+/// Branches that evolution may never check out or reset.
+///
+/// The reason is not politeness. In this repository the gateway daemon runs
+/// from this working directory, so `git reset --hard` on the branch it is
+/// served from is not a code change — it is an outage. Evolution works on a
+/// branch of its own and comes back to the operator to merge.
+///
+/// `BKGCLAW_PROTECTED_BRANCHES` extends the list, because a deployment might
+/// run the server from something other than `main`.
+fn protected_branches(_dir: &Path) -> Vec<String> {
+    let mut names = vec!["main".to_string(), "master".to_string()];
+    if let Ok(extra) = std::env::var("BKGCLAW_PROTECTED_BRANCHES") {
+        names.extend(
+            extra
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_string),
+        );
+    }
+    names
 }
 
 /// Measure the baseline before the agent starts, on the clean tree.
@@ -271,6 +306,25 @@ pub async fn run_cycle(dir: &Path, goal: &str, options: &EvolveOptions) -> Resul
 
     let home = bkgclaw_store::home_root();
     let archive = AttemptArchive::new(&home);
+
+    // 0 — PROTECT THE RUNNING TREE.
+    //
+    // A cycle ends in `git reset --hard` on failure and in a commit on
+    // success. On `main` that is not an edit, it is an outage: the gateway
+    // runs from this very directory, so a revert during an unattended run
+    // takes the server down. Evolution therefore gets its own branch and
+    // never touches the one something is running from.
+    let protected = protected_branches(dir);
+    let current = gitops::current_branch(dir).unwrap_or_default();
+    if protected.iter().any(|name| name == &current) {
+        return Err(format!(
+            "evolve läuft auf `{}` — geschützt: {}. \
+             der server läuft aus diesem baum; ein `git reset --hard` wäre ein ausfall. \
+             evolution auf einen eigenen zweig: `git switch -c evolve`",
+            current,
+            protected.join(", "),
+        ));
+    }
 
     // 1 — GUARD: repo, clean tree, branch, snapshot. The branch exists
     // even on failure; forensics beats tidiness — but a dirty tree
