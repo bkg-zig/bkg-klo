@@ -17,7 +17,10 @@ pub mod loop_driver;
 pub mod memory;
 
 pub use daemon::{DaemonStats, Goal, MAX_GOAL_ATTEMPTS, Queue, now_secs};
-pub use engine::{CycleResult, EvolveOptions, init_repo, journal_path, push_state, run_cycle};
+pub use engine::{
+    CycleResult, EvolveOptions, WorkOutcome, init_repo, journal_path, push_state, run_cycle,
+    work_handshake, work_phase,
+};
 pub use evolution::{EvolutionLoop, Proposal};
 pub use fitness::{FitnessReport, Verdict, measure as measure_fitness};
 pub use loop_driver::{

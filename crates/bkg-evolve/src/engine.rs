@@ -21,14 +21,14 @@
 
 use std::path::{Path, PathBuf};
 
-use bkgclaw_core::loop_engine::{StopReason, run_agent_turns_with};
+use bkgclaw_core::loop_engine::{run_agent_turns_with, StopReason};
 use bkgclaw_core::models::Message;
 use bkgclaw_core::tools::Policy;
 use bkgclaw_core::{Budget, Detector, LoopConfig};
 
 use crate::fitness::{self, FitnessReport, Verdict};
 use crate::gitops;
-use crate::memory::{Attempt, AttemptArchive, lesson_for};
+use crate::memory::{lesson_for, Attempt, AttemptArchive};
 
 /// What one cycle should do differently.
 #[derive(Debug, Clone)]
@@ -42,6 +42,10 @@ pub struct EvolveOptions {
     /// Commit only on a measurably better tree; neutral results stay on
     /// the branch uncommitted, suspect results are reverted like failures.
     pub strict: bool,
+    /// Run the WORK phase inside the Landlock write-jail: the agent may
+    /// write only this tree. Fail-closed — a refused jail refuses the
+    /// cycle, an unsandboxed work phase is not an option.
+    pub jail: bool,
 }
 
 impl Default for EvolveOptions {
@@ -51,6 +55,7 @@ impl Default for EvolveOptions {
             origin: None,
             lesson_count: 5,
             strict: false,
+            jail: false,
         }
     }
 }
@@ -74,13 +79,7 @@ pub struct CycleResult {
 pub fn slug(goal: &str) -> String {
     let mut slug: String = goal
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
         .collect();
     slug = slug.trim_matches('-').to_string();
     if slug.is_empty() {
@@ -126,12 +125,146 @@ fn baseline_fitness(dir: &Path) -> FitnessReport {
     fitness::measure(dir)
 }
 
+/// What the WORK phase produced — evidence for the record, never the
+/// verdict. The stop reason says how the turn ended ("Answered" after a
+/// single no-tool turn is the honest signature of a model that talked
+/// instead of worked).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WorkOutcome {
+    #[serde(default)]
+    pub answer: String,
+    #[serde(default)]
+    pub stop_reason: String,
+    #[serde(default)]
+    pub turns: u32,
+}
+
+/// Phase 3 on its own: the only phase where the model's hands touch the
+/// tree. Public + separate so the daemon can run exactly this part
+/// inside the sandbox jail — guard, judge and record stay outside, in
+/// our code. One agent turn, full toolset (it must run its own tests),
+/// the fitness gate judges afterwards.
+pub async fn work_phase(dir: &Path, goal: &str, lessons: &[String]) -> Result<WorkOutcome, String> {
+    let registry = bkgclaw_core::wiring::model_registry();
+    let chain = bkgclaw_core::wiring::default_chain()
+        .await
+        .into_iter()
+        .filter(|candidate| registry.for_vendor(candidate.model.vendor).is_some())
+        .collect::<Vec<_>>();
+    if chain.is_empty() {
+        return Err("kein nutzbares modell — NIM_API_KEY setzen oder ollama starten".into());
+    }
+
+    let executor = bkgclaw_exec::LocalExecutor::new();
+    let config = LoopConfig {
+        max_turns: bkgclaw_core::loop_engine::max_turns(),
+        max_tool_output: 12_000,
+        policy: Policy::AllowAll,
+        overrides: Default::default(),
+        detector: Detector::new(),
+    };
+    let transcript = vec![
+        Message::system(evolve_prompt(dir, goal, lessons)),
+        Message::user(format!("Verbessere jetzt: {goal}. Lauf die Tests, bevor du fertig meldest.")),
+    ];
+
+    let mut router = bkgclaw_core::Router::new(&registry, chain);
+    router.breakers = bkgclaw_core::wiring::default_breakers();
+    let mut budget = Budget::new(Some(2.0));
+
+    let run = run_agent_turns_with(
+        &mut router,
+        &bkgclaw_core::tools::builtin_tools(),
+        &executor,
+        &config,
+        &mut budget,
+        transcript,
+        &bkgclaw_core::NoObserver,
+    )
+    .await;
+
+    let answer = run
+        .turns
+        .iter()
+        .rev()
+        .map(|t| t.text.as_str())
+        .find(|t| !t.is_empty())
+        .unwrap_or("")
+        .to_string();
+    Ok(WorkOutcome {
+        answer,
+        stop_reason: format!("{:?}", run.stop_reason),
+        turns: run.turns.len() as u32,
+    })
+}
+
+/// The handshake files between the daemon and its jailed worker, both
+/// inside `.bkgclaw/` — gitignored, so the tree stays clean for the
+/// fitness gate and the attempt commit.
+fn work_handshake(dir: &Path) -> (PathBuf, PathBuf) {
+    let base = dir.join(".bkgclaw");
+    (base.join("evolve-work-in.json"), base.join("evolve-work-out.json"))
+}
+
+/// Phase 3 inside the Landlock write-jail. The jailed process is this
+/// binary running the hidden `evolve work` subcommand: the briefing
+/// rides in through a file, the outcome rides back the same way, and
+/// the agent can write nothing outside this tree. Fail-closed — a
+/// refused jail refuses the cycle; an unsandboxed work phase is not an
+/// option the daemon ever takes.
+async fn jailed_work_phase(dir: &Path, goal: &str, lessons: &[String]) -> Result<WorkOutcome, String> {
+    let (in_path, out_path) = work_handshake(dir);
+    if let Some(parent) = in_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("handshake-verzeichnis: {e}"))?;
+    }
+    let briefing = serde_json::json!({ "goal": goal, "lessons": lessons });
+    std::fs::write(&in_path, briefing.to_string()).map_err(|e| format!("handshake-in: {e}"))?;
+    let _ = std::fs::remove_file(&out_path);
+
+    let dir_owned = dir.to_path_buf();
+    let in_path_rm = in_path.clone();
+    // `spawn_blocking` returns `JoinHandle<T>`; awaiting it yields `T`, never a
+    // `Result` — so there is no `?` to write. The `JoinError` case is the
+    // panic case, which the map handles; the closure's own `JailOutcome` is the
+    // value that comes back.
+    let handle = tokio::task::spawn_blocking(move || {
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("eigene binary nicht gefunden: {e}"))?;
+        let config = bkgclaw_sandbox::Config::default(); // write: ["."], read: ["/"]
+        let argv = vec![exe.display().to_string(), "evolve".into(), "work".into()];
+        let outcome = bkgclaw_sandbox::jail::run(&config, &dir_owned, &argv);
+        let _ = std::fs::remove_file(&in_path_rm);
+        Ok::<_, String>(outcome)
+    })
+    .await
+    .map_err(|e| format!("jail-task: {e}"))?;
+
+    match handle {
+        Ok(bkgclaw_sandbox::JailOutcome::Ran(0)) => {}
+        Ok(bkgclaw_sandbox::JailOutcome::Ran(code)) => {
+            let _ = std::fs::remove_file(&out_path);
+            return Err(format!("work-phase im jail endete mit exit {code}"));
+        }
+        Ok(bkgclaw_sandbox::JailOutcome::Refused(why)) => {
+            let _ = std::fs::remove_file(&out_path);
+            return Err(format!("jail verweigert — kein unsandboxer versuch: {why}"));
+        }
+        Err(why) => {
+            let _ = std::fs::remove_file(&out_path);
+            return Err(why);
+        }
+    }
+    let outcome: WorkOutcome = std::fs::read_to_string(&out_path)
+        .map_err(|e| format!("keine work-antwort vom jailed prozess: {e}"))
+        .and_then(|text| {
+            let _ = std::fs::remove_file(&out_path);
+            serde_json::from_str(&text).map_err(|e| format!("work-antwort keine json: {e}"))
+        })?;
+    Ok(outcome)
+}
+
 /// Run one complete evolution cycle.
-pub async fn run_cycle(
-    dir: &Path,
-    goal: &str,
-    options: &EvolveOptions,
-) -> Result<CycleResult, String> {
+pub async fn run_cycle(dir: &Path, goal: &str, options: &EvolveOptions) -> Result<CycleResult, String> {
     if goal.trim().is_empty() {
         return Err("ein evolve-lauf braucht ein ziel: bkgclaw evolve run \"…\"".into());
     }
@@ -171,56 +304,12 @@ pub async fn run_cycle(
 
     // 3 — WORK: one agent turn with full write access — the fitness gate
     // is the control, and approvals have no human awake at 3 a.m.
-    let registry = bkgclaw_core::wiring::model_registry();
-    let chain = bkgclaw_core::wiring::default_chain()
-        .await
-        .into_iter()
-        .filter(|candidate| registry.for_vendor(candidate.model.vendor).is_some())
-        .collect::<Vec<_>>();
-    if chain.is_empty() {
-        return Err("kein nutzbares modell — NIM_API_KEY setzen oder ollama starten".into());
-    }
-
-    let executor = bkgclaw_exec::LocalExecutor::new();
-    let config = LoopConfig {
-        max_turns: bkgclaw_core::loop_engine::max_turns(),
-        max_tool_output: 12_000,
-        // Full toolset including execute_command: the agent must be able
-        // to run its own tests. The fitness gate is the judge afterwards.
-        policy: Policy::AllowAll,
-        overrides: Default::default(),
-        detector: Detector::new(),
+    let work = if options.jail {
+        jailed_work_phase(dir, goal, &lessons).await?
+    } else {
+        work_phase(dir, goal, &lessons).await?
     };
-    let transcript = vec![
-        Message::system(evolve_prompt(dir, goal, &lessons)),
-        Message::user(format!(
-            "Verbessere jetzt: {goal}. Lauf die Tests, bevor du fertig meldest."
-        )),
-    ];
-
-    let mut router = bkgclaw_core::Router::new(&registry, chain);
-    router.breakers = bkgclaw_core::wiring::default_breakers();
-    let mut budget = Budget::new(Some(2.0));
-
-    let run = run_agent_turns_with(
-        &mut router,
-        &bkgclaw_core::tools::builtin_tools(),
-        &executor,
-        &config,
-        &mut budget,
-        transcript,
-        &bkgclaw_core::NoObserver,
-    )
-    .await;
-
-    let answer = run
-        .turns
-        .iter()
-        .rev()
-        .map(|t| t.text.as_str())
-        .find(|t| !t.is_empty())
-        .unwrap_or("")
-        .to_string();
+    let answer = work.answer;
 
     // 4 — JUDGE: nobody asks the agent how it went.
     let report = fitness::measure(dir);
@@ -282,8 +371,8 @@ pub async fn run_cycle(
         fitness: report.clone(),
         lesson: lesson.clone(),
         origin: options.origin.clone().unwrap_or_default(),
-        stop_reason: format!("{:?}", run.stop_reason),
-        turns: run.turns.len() as u32,
+        stop_reason: work.stop_reason.clone(),
+        turns: work.turns,
         answer: answer.clone(),
     };
     archive.record(attempt)?;
@@ -297,9 +386,43 @@ pub async fn run_cycle(
         baseline,
         lesson,
         answer,
-        stop_reason: run.stop_reason,
+        stop_reason: parse_stop_reason(&work.stop_reason),
         pushed,
     })
+}
+
+/// Turn a work phase's textual reason into a typed one.
+///
+/// The work phase crosses a process boundary — it runs as `bkgclaw evolve
+/// work` inside the jail and answers with JSON — so its `stop_reason` arrives
+/// as a string. `CycleResult` wants the enum, because the archive and the
+/// fitness report branch on it.
+///
+/// An unknown string is `Answered`, not a panic: the work phase can report
+/// reasons this crate has not been taught yet, and a newer worker must not
+/// crash an older reader. That trade is stated rather than hidden — a new
+/// reason shows up as "answered" rather than as itself.
+fn parse_stop_reason(raw: &str) -> StopReason {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "" | "answered" | "answer" => StopReason::Answered,
+        "turnlimit" | "turn_limit" | "max_turns" => StopReason::TurnLimit,
+        "budgetblocked" | "budget_blocked" => StopReason::BudgetBlocked,
+        "cancelled" | "canceled" => StopReason::Cancelled,
+        other => {
+            // `ProviderFailed` and `LoopDetected` carry a payload, and the
+            // string *is* that payload. Anything else with a colon is
+            // `name: detail`, which is how the work phase writes them.
+            match other.split_once(':') {
+                Some(("providerfailed" | "provider_failed" | "provider", detail)) => {
+                    StopReason::ProviderFailed(detail.trim().to_string())
+                }
+                Some(("loopdetected" | "loop_detected", detail)) => {
+                    StopReason::LoopDetected(detail.trim().to_string())
+                }
+                _ => StopReason::Answered,
+            }
+        }
+    }
 }
 
 /// Initialize the evolution repo: git init, ignore file, first commit,
@@ -312,10 +435,7 @@ pub fn init_repo(dir: &Path, origin: Option<&str>) -> Result<(), String> {
     let dirty = gitops::dirty_files(dir);
     if !dirty.is_empty() {
         gitops::add_all(dir)?;
-        gitops::commit(
-            dir,
-            "evolve 0000: kernel-baseline — bkgclaw verwaltet ab hier sein eigenes git",
-        )?;
+        gitops::commit(dir, "evolve 0000: kernel-baseline — bkgclaw verwaltet ab hier sein eigenes git")?;
     } else if gitops::commit(dir, "evolve 0000: kernel-baseline — leerer start").is_err() {
         // Nothing to commit and nothing to say: a fresh repo with nothing
         // in it still needs a root commit for branches to stand on.
@@ -355,19 +475,10 @@ mod tests {
     fn the_prompt_names_the_rules_that_matter() {
         let lessons = vec!["- versuch 1 (reverted, 10/2 tests): tests vergessen".to_string()];
         let prompt = evolve_prompt(Path::new("/repo"), "lesegeschwindigkeit", &lessons);
-        assert!(
-            prompt.contains("Exit-Codes"),
-            "das urteil muss exit-codes heißen"
-        );
-        assert!(
-            prompt.contains("KEINE git-Befehle"),
-            "der agent committet nicht selbst"
-        );
+        assert!(prompt.contains("Exit-Codes"), "das urteil muss exit-codes heißen");
+        assert!(prompt.contains("KEINE git-Befehle"), "der agent committet nicht selbst");
         assert!(prompt.contains("lesegeschwindigkeit"));
-        assert!(
-            prompt.contains("tests vergessen"),
-            "lehren müssen mitreisen"
-        );
+        assert!(prompt.contains("tests vergessen"), "lehren müssen mitreisen");
     }
 
     #[test]
@@ -378,11 +489,7 @@ mod tests {
         let registry = bkgclaw_core::tools::builtin_tools();
         assert_eq!(
             registry
-                .gate(
-                    "execute_command",
-                    Policy::AllowReadOnly,
-                    &Default::default()
-                )
+                .gate("execute_command", Policy::AllowReadOnly, &Default::default())
                 .decision,
             bkgclaw_core::tools::Decision::Deny
         );

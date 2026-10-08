@@ -111,3 +111,70 @@ body {
 .panel .row .status.in-progress { color: var(--accent); }
 .panel .row .status.deferred { color: var(--dim); }
 .panel .hint { color: var(--dim); font-size: 12px; margin-top: 16px; }
+
+/* --- code tokens -------------------------------------------------------
+   The classifier in bkgclaw-markdown decides *what kind* of token each run
+   of code is and marks it with a class; these rules are the whole of the
+   browser's highlighting. No syntax engine in the WASM bundle, no second
+   decision to keep in sync — the terminal maps the same classes to truecolor.
+
+   The names match `TokenClass::css_class` in bkgclaw-markdown/src/ir.rs.
+   Changing one without the other is a silent style regression, so the list
+   below is one line per variant, in the same order. */
+.md code {
+  font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+}
+.tok-kw   { color: #ff7b72; }  /* keyword: fn, let, if */
+.tok-ty   { color: #d29922; }  /* type: u8, String, Vec */
+.tok-fn   { color: #79c0ff; }  /* function name */
+.tok-num  { color: #b5cea8; }  /* number */
+.tok-str  { color: #d29922; }  /* string */
+.tok-com  { color: #6e7681; font-style: italic; }  /* comment */
+.tok-pun  { color: #c9d1d9; }  /* punctuation */
+.tok-attr { color: #bc8cff; }  /* attribute, macro */
+.tok      { color: inherit; }
+
+/* A code block needs its own surface, or the tokens float on the page
+   background and the contrast the theme chose stops applying. */
+.md pre {
+  background: var(--bg3);
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  line-height: 1.45;
+}
+.md pre code { background: none; padding: 0; }
+
+/* Markdown block spacing — the cockpit's own `.msg` rules set the outer
+   box, these set the interior so a rendered document reads as a document
+   and not as one undifferentiated bubble. */
+.md > :first-child { margin-top: 0; }
+.md > :last-child  { margin-bottom: 0; }
+.md p  { margin: 0.55em 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  margin: 0.9em 0 0.4em; line-height: 1.25;
+}
+.md h1 { font-size: 1.35em; } .md h2 { font-size: 1.2em; } .md h3 { font-size: 1.1em; }
+.md h1 { border-bottom: 1px solid #21262d; padding-bottom: 0.25em; }
+.md ul, .md ol { margin: 0.55em 0; padding-left: 1.5em; }
+.md li { margin: 0.2em 0; }
+.md li.task { list-style: none; margin-left: -1.5em; }
+.md li.task .box { margin-right: 0.4em; color: var(--good); }
+.md blockquote {
+  margin: 0.6em 0; padding: 0.1em 0 0.1em 0.9em;
+  border-left: 3px solid var(--border-fg, #30363d); color: var(--dim);
+}
+.md hr { border: none; border-top: 1px solid #21262d; margin: 1em 0; }
+.md a { color: var(--accent); text-decoration: none; }
+.md a:hover { text-decoration: underline; }
+.md table { border-collapse: collapse; margin: 0.7em 0; width: 100%; }
+.md th, .md td {
+  border: 1px solid #21262d; padding: 5px 9px; text-align: left; font-size: 0.92em;
+}
+.md th { background: var(--bg3); font-weight: 600; color: var(--accent); }
+.md .unsafe-url { color: var(--warn); font-size: 0.85em; }
+
+/* Streaming messages stay plain text on purpose (see views.rs), so they
+   need the wrapping the Markdown renderer would otherwise provide. */
+.msg.live, .msg.think { white-space: pre-wrap; }
