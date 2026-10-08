@@ -4,3 +4,6 @@ secrets/
 .colabsync/
 .env
 *.log
+
+# build artefacts that landed in tracked trees
+crates/bkgclaw-web/target/

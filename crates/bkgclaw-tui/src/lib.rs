@@ -22,6 +22,7 @@ use std::time::Duration;
 use bkgclaw_gateway::Gateway;
 use bkgclaw_gateway::events::{ClientMessage, Event};
 
+use office::OfficePanel;
 use state::{Cmd, TuiState};
 
 /// Where to find (or start) a gateway.
@@ -123,6 +124,7 @@ pub async fn run(config: TuiConfig) -> Result<(), String> {
 
     let mut state = TuiState::new(session, config.model, config.policy);
     state.status = format!("verbunden: {base}");
+    let office = OfficePanel::new(80, office::OFFICE_HEIGHT);
 
     // Keys: crossterm reads on a plain thread, because its reader is
     // blocking and owes nothing to tokio.
@@ -142,7 +144,7 @@ pub async fn run(config: TuiConfig) -> Result<(), String> {
     });
 
     let mut terminal = ratatui::init();
-    let result = event_loop(&mut terminal, state, base, socket, events, key_rx).await;
+    let result = event_loop(&mut terminal, state, office, base, socket, events, key_rx).await;
     ratatui::restore();
     result
 }
@@ -150,6 +152,7 @@ pub async fn run(config: TuiConfig) -> Result<(), String> {
 async fn event_loop(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     mut state: TuiState,
+    mut office: OfficePanel,
     base: String,
     socket: net::Socket,
     mut events: tokio::sync::mpsc::UnboundedReceiver<Event>,
@@ -159,8 +162,22 @@ async fn event_loop(
         if state.quit {
             return Ok(());
         }
+
+        // The clock is read once per frame and handed to both the panel and
+        // the renderer. Reading it twice would give two slightly different
+        // timestamps, and a pose could come out of step with what is drawn.
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_millis() as u64)
+            .unwrap_or(0);
+        office.tick(now_ms);
+        office.ensure_session(&state);
+        office.set_busy(&state);
+        let area = terminal.size().map_err(|e| format!("size: {e}"))?;
+        office.resize(area.width, office::OFFICE_HEIGHT);
+
         terminal
-            .draw(|frame| ui::render(frame, &state))
+            .draw(|frame| ui::render(frame, &state, Some(&office)))
             .map_err(|e| format!("render: {e}"))?;
 
         // Keys arrive from a plain thread; drain the channel with a small
@@ -177,7 +194,11 @@ async fn event_loop(
             }
         }
 
-        if let Ok(event) = events.try_recv() {
+        // Drain *every* buffered event, not one per iteration. With a fixed
+        // sleep below this caps the client at 40 events a second, so a fast
+        // streaming response piled up in the channel faster than it drained —
+        // the picture on screen would lag the model by seconds.
+        while let Ok(event) = events.try_recv() {
             let session = event.session().to_string();
             // A pending /new or /fork answers with a SessionUpdated for the
             // fresh id: adopt it, swap subscriptions, reset the view.
@@ -205,8 +226,24 @@ async fn event_loop(
                 state.live_reasoning.clear();
                 state.status = format!("sitzung {session}");
             }
-            if session == state.session || matches!(event, Event::SessionUpdated { .. }) {
+            // `Notice` carries the session id `"-"`: it is addressed to every
+            // client, not to one session. The filter used to drop it, which is
+            // why an evolve run was invisible in the TUI even though the
+            // gateway broadcast every progress line.
+            let for_us = session == state.session
+                || matches!(event, Event::SessionUpdated { .. })
+                || matches!(event, Event::Notice { .. });
+            if for_us {
+                let before = state.lines.len();
                 state::apply(&mut state, &event);
+                // Fold any new transcript row into the room, so the picture
+                // and the text can never disagree about what happened.
+                for line in state.lines[before.min(state.lines.len())..].iter() {
+                    office.feed(line);
+                }
+                // A cancelled turn clears the live buffers, and `apply` may
+                // drop the message entirely; the room must hear about the
+                // notice lines too, which arrive as `Line::Status`.
             }
         }
 

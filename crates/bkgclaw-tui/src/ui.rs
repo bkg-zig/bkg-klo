@@ -7,22 +7,40 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line as TextLine, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
+use crate::office::{OfficePanel, OFFICE_HEIGHT};
 use crate::state::{Line, Modal, TuiState};
 
 /// Render one full frame.
-pub fn render(frame: &mut Frame, state: &TuiState) {
-    let chunks = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(3),
-        Constraint::Length(3),
-        Constraint::Length(1),
-    ])
-    .split(frame.area());
+pub fn render(frame: &mut Frame, state: &TuiState, office: Option<&OfficePanel>) {
+    // The office strip only appears when the screen has room for it. Below
+    // this height it would eat the transcript, and a chat box with no room to
+    // type in is worse than no picture.
+    let show_office = office.is_some() && frame.area().height >= OFFICE_HEIGHT + 8;
 
-    render_header(frame, chunks[0], state);
-    render_transcript(frame, chunks[1], state);
-    render_input(frame, chunks[2], state);
-    render_status(frame, chunks[3], state);
+    let mut constraints = vec![Constraint::Length(1)];
+    if show_office {
+        constraints.push(Constraint::Length(OFFICE_HEIGHT));
+    }
+    constraints.push(Constraint::Min(3));
+    constraints.push(Constraint::Length(3));
+    constraints.push(Constraint::Length(1));
+
+    let chunks = Layout::vertical(constraints).split(frame.area());
+    let mut next = 0;
+
+    render_header(frame, chunks[next], state);
+    next += 1;
+
+    if let (true, Some(office)) = (show_office, office) {
+        office.draw(frame.buffer_mut(), chunks[next]);
+        next += 1;
+    }
+
+    render_transcript(frame, chunks[next], state);
+    next += 1;
+    render_input(frame, chunks[next], state);
+    next += 1;
+    render_status(frame, chunks[next], state);
 
     match state.modal {
         Modal::None => {}
@@ -328,7 +346,7 @@ mod tests {
         let backend = ratatui::backend::TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).expect("terminal builds");
         terminal
-            .draw(|frame| render(frame, state))
+            .draw(|frame| render(frame, state, None))
             .expect("frame renders");
         let buffer = terminal.backend().buffer().clone();
         let mut text = String::new();

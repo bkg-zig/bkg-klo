@@ -1,7 +1,7 @@
 //! The cockpit views: one signal, four panels, zero hidden state.
 
 use crate::net;
-use crate::{Cockpit, Panel, TranscriptItem, WireClient};
+use crate::{ApprovalDecision, Cockpit, Panel, TranscriptItem, WireClient, WireEvent};
 use dioxus::prelude::*;
 use serde_json::json;
 
@@ -170,41 +170,97 @@ pub fn App() -> Element {
     }
 }
 
+/// One pending approval, taken straight from the protocol's own event.
 #[component]
-fn ApprovalBar(mut cockpit: Signal<Cockpit>, pending: crate::ApprovalRequest) -> Element {
+fn ApprovalBar(mut cockpit: Signal<Cockpit>, pending: WireEvent) -> Element {
+    let WireEvent::ApprovalRequest {
+        call_id,
+        name,
+        risk,
+        arguments,
+        ..
+    } = &pending
+    else {
+        return rsx! {};
+    };
     // Each button needs its own id: a move-closure owns what it captures,
     // and three closures cannot share one.
-    let allow_id = pending.call_id.clone();
-    let deny_id = pending.call_id.clone();
-    let always_id = pending.call_id.clone();
+    let allow_id = call_id.clone();
+    let deny_id = call_id.clone();
+    let always_id = call_id.clone();
+    let tool = name.clone();
+    let risk_text = risk.clone();
+    let args = format!("{arguments}");
     rsx! {
         div { class: "approval",
             strong { "freigabe nötig: " }
-            span { "{pending.name} ({pending.risk})" }
-            code { "{pending.arguments}" }
+            span { "{tool} ({risk_text})" }
+            code { "{args}" }
             div { class: "choices",
                 button {
                     onclick: move |_| {
-                        net::send(&WireClient::Approval { call_id: allow_id.clone(), decision: "allow".into() });
+                        net::send(&WireClient::Approval {
+                            call_id: allow_id.clone(),
+                            decision: ApprovalDecision::Allow,
+                        });
                         cockpit.write().pending_approval = None;
                     },
                     "erlauben"
                 }
                 button {
                     onclick: move |_| {
-                        net::send(&WireClient::Approval { call_id: deny_id.clone(), decision: "deny".into() });
+                        net::send(&WireClient::Approval {
+                            call_id: deny_id.clone(),
+                            decision: ApprovalDecision::Deny,
+                        });
                         cockpit.write().pending_approval = None;
                     },
                     "ablehnen"
                 }
                 button {
                     onclick: move |_| {
-                        net::send(&WireClient::Approval { call_id: always_id.clone(), decision: "always".into() });
+                        net::send(&WireClient::Approval {
+                            call_id: always_id.clone(),
+                            decision: ApprovalDecision::Always,
+                        });
                         cockpit.write().pending_approval = None;
                     },
                     "immer erlauben"
                 }
             }
+        }
+    }
+}
+
+/// A finished agent message, rendered as Markdown.
+///
+/// # Why `dangerous_inner_html` and not RSX elements
+///
+/// The alternative is walking the parsed tree and emitting one Dioxus element
+/// per node. That is safer by construction — Dioxus escapes text nodes itself —
+/// but it would mean a *third* renderer with its own test path, and the shared
+/// crate's whole reason for existing is that both clients read one tree.
+///
+/// So the safety has to come from somewhere real, and it does:
+/// `bkgclaw_markdown::backend::html` escapes every text node it emits and
+/// writes only tags it chose itself. Raw HTML in model output is treated as
+/// *text* by the parser and escaped again on the way out — two independent
+/// passes. The unit tests in that module cover `<script>`, `<img onerror>`,
+/// `javascript:` and `data:` URLs, which is where the risk actually lives.
+///
+/// `use_hypertext` keeps this syntactically visible: it is not a string that
+/// might one day be built from unescaped fragments, it is a call that says
+/// "this is trusted HTML", and the only producer is the escaping renderer.
+#[component]
+fn Markdown(source: String) -> Element {
+    let html = use_memo(move || {
+        let document = bkgclaw_markdown::parse(&source);
+        bkgclaw_markdown::backend::html::render(&document)
+    });
+    rsx! {
+        div {
+            class: "msg agent md",
+            dangerous_inner_html: "{html}",
         }
     }
 }
@@ -234,9 +290,15 @@ fn Chat(mut cockpit: Signal<Cockpit>) -> Element {
             div { class: "transcript",
                 for item in cockpit.read().transcript.clone().into_iter() {
                     match item {
-                        TranscriptItem::User(text) => rsx! { div { class: "msg user", "{text}" } },
-                        TranscriptItem::Assistant(text) => rsx! { div { class: "msg agent", "{text}" } },
-                        TranscriptItem::Reasoning(text) => rsx! { div { class: "msg think", "{text}" } },
+                        TranscriptItem::User(text) => rsx! {
+                            div { class: "msg user", "{text}" }
+                        },
+                        TranscriptItem::Assistant(text) => rsx! {
+                            Markdown { source: text }
+                        },
+                        TranscriptItem::Reasoning(text) => rsx! {
+                            div { class: "msg think", "{text}" }
+                        },
                         TranscriptItem::Tool { name, outcome, output } => rsx! {
                             div { class: "msg tool {outcome}",
                                 "⚙ {name}: "
@@ -244,9 +306,17 @@ fn Chat(mut cockpit: Signal<Cockpit>) -> Element {
                             }
                         },
                         TranscriptItem::Error(text) => rsx! { div { class: "msg error", "{text}" } },
+                        TranscriptItem::Status(text) => rsx! {
+                            div { class: "msg notice", "· {text}" }
+                        },
                     }
                 }
                 if !cockpit.read().live_reasoning.is_empty() {
+                    // The streaming buffers stay plain text on purpose. Parsing
+                    // a half-arrived message means re-parsing it on every delta,
+                    // and the intermediate result flickers — a heading that has
+                    // not received its `#` yet renders as a paragraph, then
+                    // jumps. It becomes Markdown the moment the turn ends.
                     div { class: "msg think", "{cockpit.read().live_reasoning}" }
                 }
                 if !cockpit.read().live.is_empty() {

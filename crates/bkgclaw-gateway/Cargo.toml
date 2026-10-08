@@ -11,6 +11,7 @@ authors.workspace = true
 bkgclaw-core = { workspace = true }
 bkgclaw-store = { workspace = true }
 bkgclaw-exec = { workspace = true }
+bkgclaw-protocol = { workspace = true }
 bkg-evolve = { workspace = true }
 bkgclaw-office = { workspace = true }
 axum = { version = "0.8", features = ["ws", "json"] }

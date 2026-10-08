@@ -18,5 +18,24 @@ gloo-net = { version = "0.6", default-features = false, features = ["json", "htt
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["WebSocket", "MessageEvent", "console", "Window", "Location"] }
 
+# The wire contract and the Markdown renderer, imported rather than copied.
+#
+# This crate is excluded from the parent workspace (its deps only build for
+# wasm32), so these are plain path dependencies — verified to work from an
+# excluded crate in a scratch workspace, including for wasm32.
+#
+# `default-features = false` is load-bearing: the crate's default `terminal`
+# feature pulls in ratatui, and ratatui pulls in crossterm, and crossterm
+# reaches for raw terminal syscalls that do not exist in a browser. The
+# browser gets the IR and the html backend; the TUI gets the rest.
+#
+# The old `WireEvent`/`WireClient` copy of the protocol is gone. A hand copy
+# does not fail loudly: a new event variant landed in the daemon, the TUI
+# accepted it, and the browser dropped it on the floor with a serde error
+# nobody saw, because a *deserialiser* rejects silently. Only a serialiser
+# complains.
+bkgclaw-protocol = { path = "../bkgclaw-protocol" }
+bkgclaw-markdown = { path = "../bkgclaw-markdown", default-features = false }
+
 [lib]
 crate-type = ["lib", "cdylib"]

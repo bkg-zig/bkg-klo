@@ -13,6 +13,13 @@
 use dioxus::prelude::*;
 use serde::Deserialize;
 
+// The wire contract, imported from the crate that owns it. This used to be a
+// hand-maintained copy of the gateway's enums — see the note in Cargo.toml for
+// why a copy of a protocol is worse than no protocol at all.
+pub use bkgclaw_protocol::{
+    ApprovalDecision, ClientMessage as WireClient, Event as WireEvent,
+};
+
 mod net;
 pub mod views;
 
@@ -29,7 +36,9 @@ pub struct Cockpit {
     pub live: String,
     pub live_reasoning: String,
     pub busy: bool,
-    pub pending_approval: Option<ApprovalRequest>,
+    /// The pending approval, in the protocol's own shape. The `session` field
+    /// rides along because the event carries it; the modal does not show it.
+    pub pending_approval: Option<bkgclaw_protocol::Event>,
     pub spent: f64,
     pub notice: String,
     pub panel: Panel,
@@ -62,6 +71,9 @@ pub enum TranscriptItem {
     Reasoning(String),
     Tool { name: String, outcome: String, output: String },
     Error(String),
+    /// A daemon notice addressed to every client — evolve progress, snapshots.
+    /// Distinguished from `Error` because it is information, not failure.
+    Status(String),
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -71,14 +83,6 @@ pub struct SessionRow {
     pub preview: String,
     #[serde(default)]
     pub message_count: usize,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct ApprovalRequest {
-    pub call_id: String,
-    pub name: String,
-    pub risk: String,
-    pub arguments: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -98,47 +102,4 @@ pub struct MemoryRow {
 pub struct SkillRow {
     pub name: String,
     pub description: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum WireEvent {
-    TurnStart { session: String, turn: u32 },
-    ModelRequest { session: String, model: String },
-    Delta { session: String, kind: DeltaKind, text: String },
-    AssistantText { session: String, text: String, model: String },
-    ToolOutcome { session: String, name: String, outcome: String, output: String, truncated: bool },
-    ApprovalRequest { session: String, call_id: String, name: String, risk: String, arguments: serde_json::Value },
-    TurnEnd { session: String, turn: u32, cost_usd: Option<f64>, total_tokens: u64 },
-    Stop { session: String, reason: String },
-    SessionUpdated { session: String },
-    Cancelled { session: String },
-    Error { session: String, message: String },
-}
-
-#[derive(Debug, Clone, Copy, serde::Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-enum DeltaKind {
-    Text,
-    Reasoning,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum WireClient {
-    Subscribe { session: String },
-    StopReceiving { session: String },
-    Send { session: String, message: String },
-    Approval { call_id: String, decision: String },
-    Cancel { session: String },
-    CreateSession {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        model: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        policy: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        fork_from: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        fork_at: Option<usize>,
-    },
 }
