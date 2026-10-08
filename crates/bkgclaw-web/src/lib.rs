@@ -44,6 +44,9 @@ pub struct Cockpit {
     pub tasks: Vec<TaskRow>,
     pub memory: Vec<MemoryRow>,
     pub skills: Vec<SkillRow>,
+    /// The evolve daemon's state. Populated on demand, not polled: the
+    /// operator opens this panel to look, not to stare at a counter.
+    pub evolve: crate::EvolveReport,
     pub input: String,
     pub policy: String,
     /// A session created from this page is adopted when its confirmation
@@ -60,6 +63,9 @@ pub enum Panel {
     Tasks,
     Memory,
     Skills,
+    /// What the self-improvement daemon has been doing: counters, the queue
+    /// it is working through, and the attempt archive with its lessons.
+    Evolve,
 }
 
 /// One rendered transcript row.
@@ -101,4 +107,82 @@ pub struct MemoryRow {
 pub struct SkillRow {
     pub name: String,
     pub description: String,
+}
+
+/// What the evolve daemon has done since it started.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+pub struct EvolveDaemon {
+    #[serde(default)]
+    pub cycles: u64,
+    #[serde(default)]
+    pub improved: u64,
+    #[serde(default)]
+    pub unchanged: u64,
+    #[serde(default)]
+    pub failed: u64,
+    /// The goal being worked right now, if any. `None` between cycles is
+    /// normal; `Some` that never moves is a stuck daemon.
+    #[serde(default)]
+    pub current: Option<String>,
+    #[serde(default)]
+    pub last_cycle_ts: u64,
+    #[serde(default)]
+    pub started_ts: u64,
+    /// True when no push remote is configured. Shown prominently: an agent
+    /// improving a tree nobody can see is a machine burning a budget quietly.
+    #[serde(default)]
+    pub origin_missing: bool,
+}
+
+/// One goal on the daemon's queue.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+pub struct EvolveGoal {
+    #[serde(default)]
+    pub goal: String,
+    #[serde(default)]
+    pub attempts: u32,
+    #[serde(default)]
+    pub push: bool,
+    /// Retried too often to keep trying; the goal is kept, not deleted.
+    #[serde(default)]
+    pub parked: bool,
+}
+
+/// One finished evolution attempt.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+pub struct EvolveAttempt {
+    #[serde(default)]
+    pub id: u64,
+    #[serde(default)]
+    pub ts: u64,
+    #[serde(default)]
+    pub goal: String,
+    #[serde(default)]
+    pub branch: String,
+    /// `improved` | `neutral` | `suspect` | `reverted`
+    #[serde(default)]
+    pub verdict: String,
+    #[serde(default)]
+    pub tests_passed: u64,
+    #[serde(default)]
+    pub tests_failed: u64,
+    #[serde(default)]
+    pub clippy_warnings: u64,
+    #[serde(default)]
+    pub lesson: String,
+}
+
+/// Everything `/api/evolve` returns, in one shape.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq)]
+pub struct EvolveReport {
+    #[serde(default)]
+    pub daemon: EvolveDaemon,
+    #[serde(default)]
+    pub queue: Vec<EvolveGoal>,
+    #[serde(default)]
+    pub attempts: Vec<EvolveAttempt>,
+    #[serde(default)]
+    pub journal_head: String,
+    #[serde(default)]
+    pub queue_path: String,
 }

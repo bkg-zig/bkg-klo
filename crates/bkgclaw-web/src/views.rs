@@ -110,6 +110,18 @@ pub fn App() -> Element {
                         },
                         "skills"
                     }
+                    button {
+                        class: if cockpit.read().panel == Panel::Evolve { "on" },
+                        onclick: move |_| {
+                            cockpit.write().panel = Panel::Evolve;
+                            let base = cockpit.read().base.clone();
+                            spawn(async move {
+                                let evolve = net::fetch_evolve(&base).await;
+                                cockpit.write().evolve = evolve;
+                            });
+                        },
+                        "evolve"
+                    }
                 }
             }
 
@@ -162,6 +174,7 @@ pub fn App() -> Element {
                         Panel::Tasks => rsx! { TaskPanel { cockpit } },
                         Panel::Memory => rsx! { MemoryPanel { cockpit } },
                         Panel::Skills => rsx! { SkillPanel { cockpit } },
+                        Panel::Evolve => rsx! { EvolvePanel { cockpit } },
                     }
                 }
             }
@@ -421,6 +434,115 @@ fn SkillPanel(mut cockpit: Signal<Cockpit>) -> Element {
                 }
             }
             p { class: "hint", "skills liegen in .bkgclaw/skills/<name>/SKILL.md — der agent lädt sie mit skill_read" }
+        }
+    }
+}
+
+/// What the self-improvement daemon has done, is doing, and has queued.
+///
+/// # What this panel is for
+///
+/// A daemon that improves a tree nobody is watching looks exactly like a daemon
+/// that is stuck. So the counters that tell the two apart are the headline,
+/// not a footnote:
+///
+/// - `current` names the goal in flight — an empty one between cycles is
+///   normal, a frozen one is not;
+/// - `cycles` moves even when nothing improved, because a counter that only
+///   ticks on success cannot distinguish "busy" from "hung";
+/// - `origin_missing` is shouted about, because an improved branch nobody can
+///   see is a budget spent for nothing.
+#[component]
+fn EvolvePanel(mut cockpit: Signal<Cockpit>) -> Element {
+    let evolve = cockpit.read().evolve.clone();
+    let daemon = &evolve.daemon;
+    // RSX does not interpolate, so the labels are built before the markup.
+    let queue_heading = format!("warteschlange ({})", evolve.queue.len());
+    let attempts_heading = format!("versuche ({})", evolve.attempts.len());
+
+    rsx! {
+        div { class: "panel evolve",
+            // The headline row: counters, not decoration.
+            div { class: "evolve-stats",
+                div { class: "stat big",
+                    span { class: "stat-value", "{daemon.cycles}" }
+                    span { class: "stat-label", "zyklen" }
+                },
+                div { class: "stat big good",
+                    span { class: "stat-value", "{daemon.improved}" }
+                    span { class: "stat-label", "verbessert" }
+                },
+                div { class: "stat",
+                    span { class: "stat-value", "{daemon.unchanged}" }
+                    span { class: "stat-label", "unverändert" }
+                },
+                div { class: if daemon.failed > 0 { "stat bad" } else { "stat" },
+                    span { class: "stat-value", "{daemon.failed}" }
+                    span { class: "stat-label", "fehlgeschlagen" }
+                },
+            }
+
+            // What it is doing right now. Empty between cycles is normal, and
+            // saying so beats a blinking cursor that means nothing.
+            div { class: if daemon.current.is_some() { "evolve-now busy" } else { "evolve-now" },
+                if let Some(goal) = &daemon.current {
+                    span { class: "pulse", "●" }
+                    " arbeitet an: "
+                    strong { "{goal}" }
+                } else {
+                    "wartet auf arbeit"
+                }
+            }
+
+            if daemon.origin_missing {
+                div { class: "warn-banner",
+                    "kein push-remote — bessere zweige bleiben lokal. ",
+                    code { "bkgclaw evolve init --origin <url>" }
+                }
+            }
+
+            h3 { "{queue_heading}" }
+            if evolve.queue.is_empty() {
+                p { class: "hint",
+                    "keine ziele in der warteschlange. ",
+                    code { "bkgclaw evolve seed \"verbessere die tui\"" }
+                }
+            } else {
+                for goal in evolve.queue.iter() {
+                    div { class: if goal.parked { "row parked" } else { "row" },
+                        span { class: if goal.parked { "status parked" } else { "status" },
+                            if goal.parked { " geparkt" } else { " wartend" }
+                        }
+                        strong { "{goal.goal}" }
+                        small { "versuche {goal.attempts}" }
+                    }
+                }
+            }
+
+            h3 { "{attempts_heading}" }
+            if evolve.attempts.is_empty() {
+                p { class: "hint", "noch keine versuche — der daemon hat noch nichts getan" }
+            } else {
+                for attempt in evolve.attempts.iter().take(30) {
+                    div { class: "row",
+                        span { class: "status {attempt.verdict}", "[{attempt.verdict}]" }
+                        strong { "#{attempt.id} {attempt.goal}" }
+                        small { "{attempt.tests_passed}/{attempt.tests_failed} tests, {attempt.clippy_warnings} clippy" }
+                        if !attempt.lesson.is_empty() {
+                            p { class: "lesson", "{attempt.lesson}" }
+                        }
+                    }
+                }
+            }
+
+            if !evolve.journal_head.is_empty() {
+                h3 { "journal" }
+                pre { class: "journal", "{evolve.journal_head}" }
+            }
+
+            p { class: "hint",
+                "queue: ", code { "{evolve.queue_path}" }
+            }
         }
     }
 }

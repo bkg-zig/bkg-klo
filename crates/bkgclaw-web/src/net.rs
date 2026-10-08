@@ -133,6 +133,18 @@ pub async fn fetch_skills(base: &str) -> Vec<SkillRow> {
     serde_json::from_value(payload["data"].clone()).unwrap_or_default()
 }
 
+/// The evolve daemon's counters, queue and attempt archive.
+///
+/// A failure returns the default rather than an error: the panel has to
+/// render even when the daemon has never run, and "no attempts yet" is a
+/// state, not a failure.
+pub async fn fetch_evolve(base: &str) -> crate::EvolveReport {
+    match get_json(base, "/api/evolve").await {
+        Ok(payload) => serde_json::from_value(payload["data"].clone()).unwrap_or_default(),
+        Err(_) => crate::EvolveReport::default(),
+    }
+}
+
 /// Fold one gateway event into the cockpit state.
 pub fn apply_event(state: &mut Cockpit, event: &WireEvent) {
     match event {

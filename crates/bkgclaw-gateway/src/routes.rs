@@ -359,7 +359,45 @@ pub async fn evolve_status(State(_gateway): State<Arc<Gateway>>) -> Json<serde_j
         .collect();
     let journal = std::fs::read_to_string(bkg_evolve::journal_path()).unwrap_or_default();
     let head: String = journal.lines().take(80).collect::<Vec<_>>().join("\n");
-    Json(json!({ "ok": true, "data": { "attempts": attempts, "journal_head": head } }))
+
+    // The daemon's own view: counters and the queue it is working through.
+    // Without these the UI could show history but not whether anything is
+    // happening *now* — which is the question the panel exists to answer.
+    let (stats, summary) = bkg_evolve::stats_for(&home);
+    let queue = bkg_evolve::Queue::new(&home);
+    let goals: Vec<serde_json::Value> = queue
+        .goals()
+        .into_iter()
+        .map(|goal| {
+            serde_json::json!({
+                "goal": goal.goal,
+                "attempts": goal.attempts,
+                "push": goal.push,
+                "parked": goal.attempts >= bkg_evolve::MAX_GOAL_ATTEMPTS,
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "ok": true,
+        "data": {
+            "attempts": attempts,
+            "journal_head": head,
+            "daemon": {
+                "cycles": stats.cycles,
+                "improved": stats.improved,
+                "unchanged": stats.unchanged,
+                "failed": stats.failed,
+                "current": stats.current,
+                "last_cycle_ts": stats.last_cycle_ts,
+                "started_ts": stats.started_ts,
+                "origin_missing": stats.origin_missing,
+            },
+            "queue": goals,
+            "queue_path": bkg_evolve::queue_path(&home).display().to_string(),
+            "archive": summary,
+        }
+    }))
 }
 
 #[derive(Deserialize)]

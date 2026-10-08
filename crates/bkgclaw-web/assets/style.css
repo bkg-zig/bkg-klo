@@ -178,3 +178,69 @@ body {
 /* Streaming messages stay plain text on purpose (see views.rs), so they
    need the wrapping the Markdown renderer would otherwise provide. */
 .msg.live, .msg.think { white-space: pre-wrap; }
+
+/* --- evolve panel ------------------------------------------------------
+   The counters are the headline, not a footnote: a daemon improving a tree
+   nobody watches looks exactly like a daemon that is stuck, and telling
+   those two apart is the panel's whole job. */
+.evolve-stats {
+  display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.evolve-stats .stat {
+  background: var(--bg3); border: 1px solid #21262d; border-radius: 8px;
+  padding: 10px 14px; min-width: 84px; display: flex; flex-direction: column;
+}
+.evolve-stats .stat .stat-value {
+  font-size: 22px; font-weight: 600; color: var(--accent); line-height: 1.1;
+}
+.evolve-stats .stat .stat-label {
+  font-size: 11px; color: var(--dim); text-transform: uppercase;
+  letter-spacing: 0.06em; margin-top: 3px;
+}
+.evolve-stats .stat.good .stat-value { color: var(--good); }
+.evolve-stats .stat.bad  .stat-value { color: var(--bad); }
+.evolve-stats .stat.big .stat-value { font-size: 28px; }
+
+/* The live line. A pulse only while work is in flight — a permanent
+   animation reads as "something is happening" even when nothing is. */
+.evolve-now {
+  padding: 8px 12px; border-radius: 6px; background: var(--bg3);
+  color: var(--dim); margin-bottom: 12px;
+}
+.evolve-now.busy { color: var(--fg); background: #12212e; }
+.evolve-now .pulse { color: var(--accent); animation: blink 1.4s infinite; }
+
+.evolve .warn-banner {
+  background: #241d10; border: 1px solid var(--warn); color: var(--warn);
+  padding: 9px 12px; border-radius: 6px; margin-bottom: 14px; font-size: 13px;
+}
+.evolve .warn-banner code { color: var(--warn); }
+
+.evolve h3 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--dim); margin: 18px 0 8px; font-weight: 600;
+}
+.evolve .row {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+  padding: 7px 10px; border-bottom: 1px solid #1c222b;
+}
+.evolve .row.parked { opacity: 0.55; }
+.evolve .row .status {
+  font-size: 11px; padding: 1px 7px; border-radius: 4px;
+  background: var(--bg3); color: var(--dim);
+}
+.evolve .row .status.improved { color: var(--good); }
+.evolve .row .status.neutral   { color: var(--dim); }
+.evolve .row .status.suspect   { color: var(--warn); }
+.evolve .row .status.reverted  { color: var(--bad); }
+.evolve .row .status.parked    { color: var(--warn); }
+.evolve .row small { color: var(--dim); font-size: 12px; }
+.evolve .lesson {
+  flex-basis: 100%; margin: 4px 0 0; color: var(--dim);
+  font-size: 12px; font-style: italic;
+}
+.evolve .journal {
+  background: var(--bg3); border: 1px solid #21262d; border-radius: 6px;
+  padding: 10px 12px; font-size: 12px; line-height: 1.4; overflow-x: auto;
+  color: var(--dim); max-height: 260px; overflow-y: auto;
+}

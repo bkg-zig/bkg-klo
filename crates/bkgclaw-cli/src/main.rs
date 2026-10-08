@@ -286,6 +286,26 @@ enum EvolveCommand {
     Fitness,
     /// Push the current branch and the journal to origin.
     Push,
+    /// Work the goal queue forever, without waiting for a human to start
+    /// each cycle.
+    Daemon {
+        /// Push the winning branch.
+        #[arg(long)]
+        push: bool,
+        /// Only commit when fitness measurably improved.
+        #[arg(long)]
+        strict: bool,
+        /// Seed the queue with this goal before starting.
+        #[arg(long)]
+        goal: Option<String>,
+    },
+    /// Add a goal to the queue a daemon works through.
+    Seed {
+        /// What to improve.
+        goal: String,
+    },
+    /// Show the queue and the daemon counters.
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -487,6 +507,11 @@ async fn dispatch(command: Command, json_mode: bool) -> Outcome {
         Command::Evolve(EvolveCommand::Attempts) => commands::evolve::attempts(),
         Command::Evolve(EvolveCommand::Fitness) => commands::evolve::fitness_report(),
         Command::Evolve(EvolveCommand::Push) => commands::evolve::push(),
+        Command::Evolve(EvolveCommand::Daemon { push, strict, goal }) => {
+            commands::evolve::daemon(push, strict, goal.as_deref()).await
+        }
+        Command::Evolve(EvolveCommand::Seed { goal }) => commands::evolve::seed(&goal),
+        Command::Evolve(EvolveCommand::Status) => commands::evolve::status(),
         Command::ExitCodes => Outcome::from_report(Report::ok("exit code contract").with_data(
             serde_json::json!({
                 "0": "ok",
