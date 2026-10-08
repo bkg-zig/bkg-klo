@@ -106,14 +106,13 @@ async fn embedded_gateway() -> Result<String, String> {
 pub async fn run(config: TuiConfig) -> Result<(), String> {
     let base = resolve_gateway(config.gateway_url.clone()).await?;
 
-    let session = match &config.resume {
-        Some(id) => id.clone(),
-        None => net::create_session(&base, config.model.clone(), config.policy.clone()).await?,
-    };
-
     let token = std::env::var("BKGCLAW_GATEWAY_TOKEN")
         .ok()
         .filter(|t| !t.trim().is_empty());
+    let session = match &config.resume {
+        Some(id) => id.clone(),
+        None => net::create_session(&base, config.model.clone(), config.policy.clone(), token.as_deref()).await?,
+    };
     let (socket, events) = net::connect(&base, token).await?;
     net::send(
         &socket,
@@ -186,9 +185,12 @@ async fn event_loop(
             match state::handle_key(&mut state, key) {
                 Cmd::Nothing => {}
                 Cmd::Quit => return Ok(()),
-                Cmd::RefreshSessions => match net::fetch_sessions(&base).await {
-                    Ok(sessions) => state.sessions = sessions,
-                    Err(error) => state.status = error,
+                Cmd::RefreshSessions => {
+                    let token = std::env::var("BKGCLAW_API_KEY").ok();
+                    match net::fetch_sessions(&base, token.as_deref()).await {
+                        Ok(sessions) => state.sessions = sessions,
+                        Err(error) => state.status = error,
+                    }
                 },
                 Cmd::Ws(message) => net::send(&socket, message),
             }

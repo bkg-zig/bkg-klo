@@ -70,6 +70,9 @@ pub struct TuiState {
     /// Set by `/new` and `/fork`: the next `SessionUpdated` for an unknown
     /// session is the answer, and the TUI adopts it as active.
     pub pending_new_session: bool,
+    pub history: Vec<String>,
+    pub history_index: Option<usize>,
+    pub show_reasoning: bool,
 }
 
 impl TuiState {
@@ -91,6 +94,9 @@ impl TuiState {
             model,
             policy,
             pending_new_session: false,
+            history: Vec::new(),
+            history_index: None,
+            show_reasoning: true,
         }
     }
 }
@@ -283,12 +289,46 @@ pub fn handle_key(state: &mut TuiState, key: crossterm::event::KeyEvent) -> Cmd 
             };
             Cmd::RefreshSessions
         }
+        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.show_reasoning = !state.show_reasoning;
+            Cmd::Nothing
+        }
         KeyCode::Up => {
-            state.scroll = state.scroll.saturating_add(1);
+            if state.history.is_empty() {
+                state.scroll = state.scroll.saturating_add(1);
+                return Cmd::Nothing;
+            }
+            // History navigation: save current input on first up
+            if state.history_index.is_none() {
+                state.history_index = Some(state.history.len());
+            }
+            if let Some(idx) = state.history_index {
+                if idx > 0 {
+                    let new_idx = idx - 1;
+                    state.history_index = Some(new_idx);
+                    state.input = state.history[new_idx].clone();
+                }
+            }
             Cmd::Nothing
         }
         KeyCode::Down => {
-            state.scroll = state.scroll.saturating_sub(1);
+            if state.history.is_empty() {
+                state.scroll = state.scroll.saturating_sub(1);
+                return Cmd::Nothing;
+            }
+            if let Some(idx) = state.history_index {
+                if idx + 1 < state.history.len() {
+                    let new_idx = idx + 1;
+                    state.history_index = Some(new_idx);
+                    state.input = state.history[new_idx].clone();
+                } else {
+                    // Past newest: clear and reset
+                    state.history_index = None;
+                    state.input.clear();
+                }
+            } else {
+                state.scroll = state.scroll.saturating_sub(1);
+            }
             Cmd::Nothing
         }
         KeyCode::Enter => submit(state),
@@ -321,7 +361,12 @@ fn submit(state: &mut TuiState) -> Cmd {
     if trimmed.is_empty() {
         return Cmd::Nothing;
     }
+    // store in history if non-slash
     if !trimmed.starts_with('/') {
+        if state.history.last().map(|s| s.as_str()) != Some(trimmed) {
+            state.history.push(trimmed.to_string());
+        }
+        state.history_index = None;
         state.lines.push(Line::User(trimmed.to_string()));
         let session = state.session.clone();
         return Cmd::Ws(ClientMessage::Send {

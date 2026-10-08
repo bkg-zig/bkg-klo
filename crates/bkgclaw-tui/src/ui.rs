@@ -76,6 +76,9 @@ fn render_header(frame: &mut Frame, area: Rect, state: &TuiState) {
 fn render_transcript(frame: &mut Frame, area: Rect, state: &TuiState) {
     let mut lines: Vec<TextLine> = Vec::new();
     for line in &state.lines {
+        if matches!(line, Line::Reasoning(_)) && !state.show_reasoning {
+            continue;
+        }
         lines.push(match line {
             Line::User(text) => TextLine::from(vec![
                 Span::styled("du          ", Style::default().fg(Color::Cyan)),
@@ -131,7 +134,7 @@ fn render_transcript(frame: &mut Frame, area: Rect, state: &TuiState) {
 
     // The live buffers appear as soon as their first delta arrives, so the
     // operator sees thinking as it happens.
-    if !state.live_reasoning.is_empty() {
+    if state.show_reasoning && !state.live_reasoning.is_empty() {
         lines.push(TextLine::from(vec![
             Span::styled("denken      ", Style::default().fg(Color::DarkGray)),
             Span::styled(

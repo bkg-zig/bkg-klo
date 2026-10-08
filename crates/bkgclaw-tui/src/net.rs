@@ -6,9 +6,15 @@ use bkgclaw_gateway::events::ClientMessage;
 use futures_util::{SinkExt, StreamExt};
 
 /// One session row as the Sessions overlay shows it.
-pub async fn fetch_sessions(base: &str) -> Result<Vec<(String, String)>, String> {
+pub async fn fetch_sessions(base: &str, token: Option<&str>) -> Result<Vec<(String, String)>, String> {
     let url = format!("{base}/api/sessions");
-    let payload: serde_json::Value = reqwest::get(&url)
+    let client = reqwest::Client::new();
+    let mut req = client.get(&url);
+    if let Some(t) = token {
+        req = req.header("Authorization", format!("Bearer {t}"));
+    }
+    let payload: serde_json::Value = req
+        .send()
         .await
         .map_err(|e| format!("gateway nicht erreichbar: {e}"))?
         .json()
@@ -37,11 +43,16 @@ pub async fn create_session(
     base: &str,
     model: Option<String>,
     policy: String,
+    token: Option<&str>,
 ) -> Result<String, String> {
     let client = reqwest::Client::new();
-    let payload: serde_json::Value = client
+    let mut req = client
         .post(format!("{base}/api/sessions"))
-        .json(&serde_json::json!({ "model": model, "policy": policy }))
+        .json(&serde_json::json!({ "model": model, "policy": policy }));
+    if let Some(t) = token {
+        req = req.header("Authorization", format!("Bearer {t}"));
+    }
+    let payload: serde_json::Value = req
         .send()
         .await
         .map_err(|e| format!("gateway nicht erreichbar: {e}"))?
