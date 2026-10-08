@@ -7,3 +7,6 @@ secrets/
 
 # build artefacts that landed in tracked trees
 crates/bkgclaw-web/target/
+
+# session exports
+20*-*.txt
