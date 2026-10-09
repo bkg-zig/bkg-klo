@@ -320,7 +320,12 @@ impl ModelRegistry {
         let mut out = Vec::new();
         for provider in &self.providers {
             let has_credential = match provider.credential_env() {
-                Some(var) => std::env::var(var).is_ok_and(|v| !v.trim().is_empty()),
+                // The same resolver that registered the provider: plain env
+                // or the `${VAR}_FILE` convention. Checking only the plain
+                // variable here made a file-configured provider show up as
+                // unusable in every client while working perfectly — the
+                // registration and the display disagreed.
+                Some(var) => crate::wiring::credential(var).is_some(),
                 None => true,
             };
             // The override applies to exactly one vendor: the one the caller

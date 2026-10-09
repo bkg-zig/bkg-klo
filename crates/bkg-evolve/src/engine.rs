@@ -233,9 +233,44 @@ pub async fn work_phase(dir: &Path, goal: &str, lessons: &[String]) -> Result<Wo
     })
 }
 
-/// The handshake files between the daemon and its jailed worker, both
-/// inside `.bkgclaw/` — gitignored, so the tree stays clean for the
-/// fitness gate and the attempt commit.
+/// Read roots the jailed worker needs beyond the filesystem root.
+///
+/// Landlock rules are per **mount**: `read: ["/"]` covers only the root
+/// mount, so a Docker secret on tmpfs (`/run/secrets`) and the data volume
+/// (`/var/lib/bkgclaw`) are invisible to the jailed process. The first
+/// containerized work phase fell back to Ollama for exactly that reason —
+/// its NIM key sat behind a mount the root rule never reached.
+///
+/// The roots are derived from the environment the daemon already has:
+/// every `${VAR}_FILE` points at a secret the worker must read, and
+/// `BKGCLAW_HOME` holds the persona and memory its prompt is built from.
+/// A pure function of the variable pairs, so it is testable without
+/// touching the process environment.
+pub(crate) fn extra_read_roots(vars: impl Iterator<Item = (String, String)>) -> Vec<String> {
+    let mut roots = Vec::new();
+    let mut push = |root: &str| {
+        let root = root.trim();
+        if !root.is_empty() && !roots.iter().any(|r| r == root) {
+            roots.push(root.to_string());
+        }
+    };
+    for (key, value) in vars {
+        if key == "BKGCLAW_HOME" {
+            push(&value);
+        }
+        // Any secret-file pointer: its parent directory becomes readable.
+        // `${VAR}_FILE` is the convention the credentials themselves use
+        // (`bkgclaw-core::wiring::credential`), so the worker resolves the
+        // same files its parent does.
+        if key.ends_with("_FILE") {
+            if let Some(parent) = std::path::Path::new(&value).parent() {
+                push(&parent.display().to_string());
+            }
+        }
+    }
+    roots
+}
+
 /// The two files the parent and the jailed worker talk through.
 ///
 /// A file, not a pipe or a socket: both sides are separate processes that may
@@ -274,7 +309,16 @@ async fn jailed_work_phase(dir: &Path, goal: &str, lessons: &[String]) -> Result
     let handle = tokio::task::spawn_blocking(move || {
         let exe = std::env::current_exe()
             .map_err(|e| format!("eigene binary nicht gefunden: {e}"))?;
-        let config = bkgclaw_sandbox::Config::default(); // write: ["."], read: ["/"]
+        // Read: the filesystem root *plus* the mounts Landlock cannot reach
+        // through it — rules are per mount, and a container's secrets
+        // (`/run/secrets`, tmpfs) and data volumes live on their own.
+        // Write: the working tree, and nothing else.
+        let mut read = vec!["/".to_string()];
+        read.extend(extra_read_roots(std::env::vars()));
+        let config = bkgclaw_sandbox::Config {
+            read,
+            ..bkgclaw_sandbox::Config::default()
+        };
         let argv = vec![exe.display().to_string(), "evolve".into(), "work".into()];
         let outcome = bkgclaw_sandbox::jail::run(&config, &dir_owned, &argv);
         let _ = std::fs::remove_file(&in_path_rm);
@@ -523,6 +567,37 @@ pub fn journal_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secret_file_pointers_become_readable_mounts() {
+        // The exact container case: a tmpfs secret and a data volume. The
+        // parents become read roots, or the jailed worker cannot resolve
+        // the very credentials its parent resolved.
+        let vars = vec![
+            ("BKGCLAW_HOME".to_string(), "/var/lib/bkgclaw".to_string()),
+            ("NIM_API_KEY_FILE".to_string(), "/run/secrets/nim_api_key".to_string()),
+            ("BKGCLAW_GATEWAY_TOKEN_FILE".to_string(), "/run/secrets/gateway_token".to_string()),
+        ];
+        let roots = extra_read_roots(vars.into_iter());
+        assert!(roots.contains(&"/var/lib/bkgclaw".to_string()));
+        assert!(roots.contains(&"/run/secrets".to_string()));
+        // Two secrets in one directory must yield one root, not two.
+        assert_eq!(roots.iter().filter(|r| *r == "/run/secrets").count(), 1);
+    }
+
+    #[test]
+    fn no_env_means_no_extra_roots() {
+        // On a plain host there is nothing to add — the root mount covers
+        // the whole tree, and inventing roots would widen the jail.
+        assert!(extra_read_roots(std::iter::empty()).is_empty());
+    }
+
+    #[test]
+    fn empty_values_are_not_roots() {
+        // An unset-but-declared variable must not become a readable path.
+        let vars = vec![("BKGCLAW_HOME".to_string(), "  ".to_string())];
+        assert!(extra_read_roots(vars.into_iter()).is_empty());
+    }
 
     #[test]
     fn goals_become_filesystem_safe_slugs() {

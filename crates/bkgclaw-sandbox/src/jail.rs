@@ -93,9 +93,18 @@ fn build_ruleset(
     }
 
     // Writes only inside the allowed paths — the entire point of the jail.
+    // Each write path also carries read: a tree you may write but not read
+    // is unusable for editing (the agent's read_file is half of every
+    // edit), and in a container the tree sits on a volume — a separate
+    // mount the root read rule never covered in the first place.
     for path in write_paths {
+        let access = AccessFs::from_read(abi);
         let fd = PathFd::new(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        ruleset = ruleset
+            .add_rule(PathBeneath::new(fd, access))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         let access = AccessFs::from_write(abi);
+        let fd = PathFd::new(path).map_err(|e| format!("{}: {e}", path.display()))?;
         ruleset = ruleset
             .add_rule(PathBeneath::new(fd, access))
             .map_err(|e| format!("{}: {e}", path.display()))?;
