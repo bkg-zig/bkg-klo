@@ -260,12 +260,14 @@ pub async fn work_phase(dir: &Path, goal: &str, lessons: &[String]) -> Result<Wo
 ///
 /// Landlock rules are per **mount**: `read: ["/"]` covers only the root
 /// mount, so a Docker secret on tmpfs (`/run/secrets`) and the data volume
-/// (`/var/lib/bkgclaw`) are invisible to the jailed process. The first
-/// containerized work phase fell back to Ollama for exactly that reason —
-/// its NIM key sat behind a mount the root rule never reached.
+/// (`/var/lib/bkgclaw`) are invisible to the jailed process — and a Docker
+/// secret is a single-file bind mount, so even a rule on `/run/secrets`
+/// does not cross into the file. Two container cycles burned on exactly
+/// those two traps, both times falling back to Ollama because the NIM key
+/// sat behind an unreachable mount.
 ///
 /// The roots are derived from the environment the daemon already has:
-/// every `${VAR}_FILE` points at a secret the worker must read, and
+/// every `${VAR}_FILE` names a secret file the worker must read, and
 /// `BKGCLAW_HOME` holds the persona and memory its prompt is built from.
 /// A pure function of the variable pairs, so it is testable without
 /// touching the process environment.
@@ -281,14 +283,14 @@ pub(crate) fn extra_read_roots(vars: impl Iterator<Item = (String, String)>) -> 
         if key == "BKGCLAW_HOME" {
             push(&value);
         }
-        // Any secret-file pointer: its parent directory becomes readable.
-        // `${VAR}_FILE` is the convention the credentials themselves use
-        // (`bkgclaw-core::wiring::credential`), so the worker resolves the
-        // same files its parent does.
+        // Any secret-file pointer becomes readable — as the *file path
+        // itself*, not its parent directory: a Docker secret is a
+        // single-file bind mount, and a Landlock rule on the directory's
+        // mount does not reach across into the file's mount. This is the
+        // second mount trap in this function's history; the first
+        // (tmpfs-vs-root) cost a cycle.
         if key.ends_with("_FILE") {
-            if let Some(parent) = std::path::Path::new(&value).parent() {
-                push(&parent.display().to_string());
-            }
+            push(&value);
         }
     }
     roots
@@ -603,8 +605,10 @@ mod tests {
     #[test]
     fn secret_file_pointers_become_readable_mounts() {
         // The exact container case: a tmpfs secret and a data volume. The
-        // parents become read roots, or the jailed worker cannot resolve
-        // the very credentials its parent resolved.
+        // *file paths* become read roots, or the jailed worker cannot
+        // resolve the very credentials its parent resolved. Docker secrets
+        // are single-file bind mounts — a rule on the directory does not
+        // cross into the file's mount.
         let vars = vec![
             ("BKGCLAW_HOME".to_string(), "/var/lib/bkgclaw".to_string()),
             ("NIM_API_KEY_FILE".to_string(), "/run/secrets/nim_api_key".to_string()),
@@ -612,9 +616,10 @@ mod tests {
         ];
         let roots = extra_read_roots(vars.into_iter());
         assert!(roots.contains(&"/var/lib/bkgclaw".to_string()));
-        assert!(roots.contains(&"/run/secrets".to_string()));
-        // Two secrets in one directory must yield one root, not two.
-        assert_eq!(roots.iter().filter(|r| *r == "/run/secrets").count(), 1);
+        assert!(roots.contains(&"/run/secrets/nim_api_key".to_string()));
+        assert!(roots.contains(&"/run/secrets/gateway_token".to_string()));
+        // Two distinct secrets yield two roots, none duplicated.
+        assert_eq!(roots.len(), 3, "{roots:?}");
     }
 
     #[test]
