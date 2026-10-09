@@ -70,7 +70,13 @@ pub fn branch(dir: &Path, name: &str) -> Result<(), String> {
     if name.contains("..") || name.contains(' ') || name.starts_with('-') {
         return Err(format!("ungültiger branch-name: `{name}`"));
     }
-    git(dir, &["checkout", "-b", name]).map(|_| ())
+    // `-B`, not `-b`: a failed attempt can leave its branch behind (the
+    // failure came after the checkout, before the cleanup), and a retry of
+    // the same goal draws the same id and slug. `-b` would die on
+    // "already exists" and park the goal for a leftover; `-B` resets the
+    // branch pointer to the current base — which is exactly what a retry
+    // means, since a failed cycle leaves the tree at that base.
+    git(dir, &["checkout", "-B", name]).map(|_| ())
 }
 
 pub fn checkout(dir: &Path, name: &str) -> Result<(), String> {

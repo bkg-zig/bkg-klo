@@ -84,9 +84,18 @@ fn build_ruleset(
         .map_err(|e| format!("landlock-ruleset: {e}"))?;
 
     // Reads and executions come from the read roots (default: everything).
+    // A root can be a *file* — a Docker secret is a single-file bind mount,
+    // and the rule for it is exactly why the daemon passes it. Landlock
+    // rejects directory-only rights on a file fd ("incompatible
+    // directory-only access-rights"), so a file root gets the file right
+    // alone, a directory root gets the full read set.
     for root in read_roots {
         let fd = PathFd::new(root).map_err(|e| format!("{}: {e}", root.display()))?;
-        let access = AccessFs::from_read(abi);
+        let access: landlock::BitFlags<AccessFs> = if root.is_dir() {
+            AccessFs::from_read(abi)
+        } else {
+            AccessFs::ReadFile.into()
+        };
         ruleset = ruleset
             .add_rule(PathBeneath::new(fd, access))
             .map_err(|e| format!("{}: {e}", root.display()))?;
@@ -340,6 +349,44 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_file(outside);
+    }
+
+    #[test]
+    fn a_file_read_root_is_readable_inside_the_jail() {
+        // A Docker secret is a single-file bind mount, and the daemon passes
+        // exactly such a file as a read root. The rule for a file fd must
+        // not carry directory rights — Landlock rejects those outright
+        // ("incompatible directory-only access-rights"), which made the
+        // jail refuse its own configuration and every cycle fail.
+        let doctor = doctor();
+        if !doctor.can_jail {
+            return;
+        }
+        let dir = working_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        let secret = dir.join("secret.txt");
+        std::fs::write(&secret, "npk_test").unwrap();
+        let config = Config {
+            write: vec![".".into()],
+            read: vec!["/".into(), secret.display().to_string()],
+            ..Config::default()
+        };
+        let outcome = run(
+            &config,
+            &dir,
+            &[
+                "sh".into(),
+                "-c".into(),
+                // No redirect: `/dev/null` is a write, and the write rules
+                // cover only the working tree. The test reads, like the
+                // daemon's credential resolution.
+                format!("cat {}", secret.display()),
+            ],
+        );
+        assert!(
+            matches!(outcome, JailOutcome::Ran(code) if code == 0),
+            "die geheimdatei ist im jail lesbar: {outcome:?}"
+        );
     }
 
     #[test]
