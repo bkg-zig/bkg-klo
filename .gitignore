@@ -17,4 +17,5 @@ crates/bkgclaw-web/target/
 # host-built web bundle (install.sh erzeugt es mit dx)
 deploy/web-dist/
 
-deploy/web-dist/
+# evolve handshake files (the parent removes them; the ignore is the belt to that suspenders)
+.bkgclaw/
