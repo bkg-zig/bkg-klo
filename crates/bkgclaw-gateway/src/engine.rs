@@ -305,7 +305,7 @@ pub fn start_turn(
         let config_allows_writes =
             policy.permits(bkgclaw_core::tools::Risk::Mutating) || !overrides.is_empty();
         if config_allows_writes {
-            if let Some(cwd) = std::env::current_dir().ok() {
+            if let Ok(cwd) = std::env::current_dir() {
                 if let Some(id) = bkgclaw_store::auto_snapshot(&gateway.home, &cwd, &message_note) {
                     gateway.publish(Event::Notice {
                         session: session_id.clone(),

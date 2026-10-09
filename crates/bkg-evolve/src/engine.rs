@@ -236,9 +236,18 @@ pub async fn work_phase(dir: &Path, goal: &str, lessons: &[String]) -> Result<Wo
 /// The handshake files between the daemon and its jailed worker, both
 /// inside `.bkgclaw/` — gitignored, so the tree stays clean for the
 /// fitness gate and the attempt commit.
-fn work_handshake(dir: &Path) -> (PathBuf, PathBuf) {
+/// The two files the parent and the jailed worker talk through.
+///
+/// A file, not a pipe or a socket: both sides are separate processes that may
+/// be separated by a sandbox boundary, and the sandbox is what makes this
+/// worth having. `(input, output)` — the parent writes the briefing to the
+/// first, the worker answers in the second.
+pub fn work_handshake(dir: &Path) -> (PathBuf, PathBuf) {
     let base = dir.join(".bkgclaw");
-    (base.join("evolve-work-in.json"), base.join("evolve-work-out.json"))
+    (
+        base.join("evolve-work-in.json"),
+        base.join("evolve-work-out.json"),
+    )
 }
 
 /// Phase 3 inside the Landlock write-jail. The jailed process is this

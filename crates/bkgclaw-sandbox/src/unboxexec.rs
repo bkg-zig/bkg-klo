@@ -44,7 +44,7 @@ struct Request {
     cwd: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Response {
     ok: bool,
     #[serde(default)]
@@ -290,18 +290,6 @@ pub fn request(socket_path: &str, argv: &[String], cwd: Option<&str>) -> Result<
         .read_line(&mut line)
         .map_err(|e| format!("antwort unlesbar: {e}"))?;
     serde_json::from_str(line.trim()).map_err(|e| format!("antwort kein json: {e}"))
-}
-
-impl Default for Response {
-    fn default() -> Self {
-        Response {
-            ok: false,
-            exit: 0,
-            stdout: String::new(),
-            stderr: String::new(),
-            error: String::new(),
-        }
-    }
 }
 
 #[cfg(test)]

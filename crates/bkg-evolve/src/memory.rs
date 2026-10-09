@@ -209,8 +209,7 @@ mod tests {
     use super::*;
 
     fn home() -> PathBuf {
-        let dir = tempfile::tempdir().unwrap().keep();
-        dir
+        tempfile::tempdir().unwrap().keep()
     }
 
     fn attempt(id: u64, goal: &str, verdict: Verdict, lesson: &str) -> Attempt {

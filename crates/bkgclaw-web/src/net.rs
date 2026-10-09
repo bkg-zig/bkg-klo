@@ -223,6 +223,16 @@ pub fn apply_event(state: &mut Cockpit, event: &WireEvent) {
     }
 }
 
+/// Whether a notice came from the evolution loop.
+///
+/// Matched on the words the engine actually emits rather than on the sender,
+/// because the sender is always `"-"` — every notice is addressed to every
+/// client, so there is nothing else to tell them apart by.
+pub fn is_evolve_notice(text: &str) -> bool {
+    let lowered = text.to_ascii_lowercase();
+    lowered.starts_with("evolve")
+}
+
 /// The page-lifetime WebSocket. WASM is single-threaded, so a global with a
 /// leaked onmessage closure is the standard web-sys pattern.
 static SOCKET: OnceLock<web_sys::WebSocket> = OnceLock::new();
@@ -245,11 +255,31 @@ pub fn ensure_socket(base: &str, cockpit: dioxus::prelude::Signal<Cockpit>) -> O
     let handler = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |event: web_sys::MessageEvent| {
         let text = match event.data().as_string() { Some(text) => text, None => return };
         let Ok(parsed) = serde_json::from_str::<WireEvent>(&text) else { return };
+
+        // An evolve notice belongs to no session, so the filter below would
+        // drop it. It is also the signal that the daemon moved: refresh the
+        // panel now, while the operator is looking at it, instead of on the
+        // next click.
+        if let WireEvent::Notice { text: note, .. } = &parsed {
+            if is_evolve_notice(note) {
+                let base = signal.read().base.clone();
+                let mut target = signal.clone();
+                dioxus::prelude::spawn(async move {
+                    let evolve = fetch_evolve(&base).await;
+                    target.write().evolve = evolve;
+                });
+            }
+        }
+
         let mut state = signal.write();
         // Only events for the active session change the chat; the rest are
         // session bookkeeping a refresh already covers.
         let belongs = match &parsed {
             WireEvent::SessionUpdated { .. } => true,
+            // Notices carry the session id `"-"`, which matches no session. The
+            // evolve daemon's progress belongs in the transcript — without
+            // this arm an evolve run is invisible here.
+            WireEvent::Notice { .. } => true,
             other => other.session() == state.session.clone().unwrap_or_default(),
         };
         if belongs {

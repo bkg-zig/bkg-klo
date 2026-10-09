@@ -50,7 +50,9 @@ pub struct Config {
 }
 
 impl Config {
-    /// From the environment: `BKGCLAW_GATEWAY_TOKEN`, `BKGCLAW_WEB_DIR`.
+    /// From the environment: `BKGCLAW_GATEWAY_TOKEN` (or
+    /// `BKGCLAW_GATEWAY_TOKEN_FILE`, the Docker-secrets convention),
+    /// `BKGCLAW_WEB_DIR`.
     pub fn from_env(host: String, port: u16) -> Self {
         // Railway (and most PaaS) inject $PORT; an explicit --port still wins
         // because clap only forwards the default when the flag is absent is
@@ -66,9 +68,7 @@ impl Config {
         Config {
             host,
             port,
-            token: std::env::var("BKGCLAW_GATEWAY_TOKEN")
-                .ok()
-                .filter(|t| !t.trim().is_empty()),
+            token: bkgclaw_core::wiring::credential("BKGCLAW_GATEWAY_TOKEN"),
             web_dir: std::env::var("BKGCLAW_WEB_DIR")
                 .ok()
                 .filter(|d| !d.trim().is_empty())

@@ -85,9 +85,7 @@ async fn embedded_gateway() -> Result<String, String> {
         chain,
         bkgclaw_store::home_root(),
         bkgclaw_store::workspace_root(),
-        std::env::var("BKGCLAW_GATEWAY_TOKEN")
-            .ok()
-            .filter(|t| !t.trim().is_empty()),
+        bkgclaw_core::wiring::credential("BKGCLAW_GATEWAY_TOKEN"),
     );
     gateway.web_dir = std::env::var("BKGCLAW_WEB_DIR")
         .ok()
@@ -106,9 +104,9 @@ async fn embedded_gateway() -> Result<String, String> {
 pub async fn run(config: TuiConfig) -> Result<(), String> {
     let base = resolve_gateway(config.gateway_url.clone()).await?;
 
-    let token = std::env::var("BKGCLAW_GATEWAY_TOKEN")
-        .ok()
-        .filter(|t| !t.trim().is_empty());
+    // The same resolver as the gateway: plain env or the `_FILE` convention,
+    // so a containerized TUI and a shell one read the same secret the same way.
+    let token = bkgclaw_core::wiring::credential("BKGCLAW_GATEWAY_TOKEN");
     let session = match &config.resume {
         Some(id) => id.clone(),
         None => net::create_session(&base, config.model.clone(), config.policy.clone(), token.as_deref()).await?,

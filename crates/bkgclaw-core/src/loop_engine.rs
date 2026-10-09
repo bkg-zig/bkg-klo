@@ -1525,7 +1525,7 @@ pub fn parse_max_turns(raw: Option<&str>) -> u32 {
                 return 512;
             }
             match trimmed.parse::<u32>() {
-                Ok(value) if value >= 1 && value <= 512 => value,
+                Ok(value) if (1..=512).contains(&value) => value,
                 _ => 512, // a broken setting must not brick the agent
             }
         }

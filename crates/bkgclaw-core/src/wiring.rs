@@ -70,8 +70,36 @@ pub fn model_registry() -> ModelRegistry {
     registry
 }
 
-fn credential(var: &str) -> Option<String> {
-    std::env::var(var).ok().filter(|v| !v.trim().is_empty())
+/// Resolve a credential: the environment variable itself, or — the Docker
+/// secrets convention — a path in `${VAR}_FILE`, read and trimmed.
+///
+/// Compose mounts secrets as files. Getting them into the environment would
+/// take a shell that reads them first, and a secret in a shell's environment
+/// is a secret in `ps` and `docker inspect`. The `_FILE` suffix is the
+/// established pattern (PostgreSQL, WordPress, Vault), so every provider
+/// credential in this crate gets it for free: set `NIM_API_KEY_FILE` and the
+/// registry registers the NIM provider exactly as if `NIM_API_KEY` were set.
+///
+/// The plain variable wins when both are present: an operator who sets both
+/// is overriding the file, not duplicating it.
+pub fn credential(var: &str) -> Option<String> {
+    if let Some(value) = std::env::var(var).ok().filter(|v| !v.trim().is_empty()) {
+        return Some(value);
+    }
+    let path = std::env::var(format!("{var}_FILE")).ok()?;
+    read_credential_file(std::path::PathBuf::from(path.trim()))
+}
+
+/// One credential file: read, trimmed, checked for emptiness.
+///
+/// A trailing newline is not a mistake — `echo > file` writes one, and a key
+/// that carried it would fail against every server with a confusing
+/// "Authorization failed". Missing files and whitespace-only files are
+/// `None`: an unreadable credential is no credential, not a broken one.
+pub(crate) fn read_credential_file(path: std::path::PathBuf) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let trimmed = content.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// What a local Ollama actually has installed.
@@ -228,6 +256,36 @@ pub fn vendor_ready(registry: &ModelRegistry, vendor: Vendor) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_credential_file_is_read_and_trimmed() {
+        // `echo key > file` writes a trailing newline; a key that kept it
+        // fails against every server with a confusing "Authorization failed".
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("secret");
+        std::fs::write(&path, "  npk_live_key_123\n").expect("write");
+        assert_eq!(
+            read_credential_file(path),
+            Some("npk_live_key_123".to_string())
+        );
+    }
+
+    #[test]
+    fn an_empty_credential_file_is_no_credential() {
+        // Whitespace is the same as nothing: registering a provider with a
+        // blank key produces a vendor that fails on its first call.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("secret");
+        std::fs::write(&path, "   \n\n").expect("write");
+        assert_eq!(read_credential_file(path), None);
+    }
+
+    #[test]
+    fn a_missing_credential_file_is_no_credential() {
+        // A secret that was never mounted must not panic the registry.
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert_eq!(read_credential_file(dir.path().join("nicht-da")), None);
+    }
 
     #[test]
     fn ollama_is_always_registered_because_it_needs_no_credential() {

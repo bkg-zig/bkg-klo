@@ -306,6 +306,14 @@ enum EvolveCommand {
     },
     /// Show the queue and the daemon counters.
     Status,
+    /// The jailed worker: run exactly one work phase and report back.
+    ///
+    /// Not a command for humans. The jail re-executes the daemon's own binary
+    /// with this, because the work phase is the only part that runs with the
+    /// model's hands on the tree. Guard, judge and record stay outside, in
+    /// ordinary code — which is why this subcommand has no fitness gate of its
+    /// own and must never be run by hand expecting one.
+    Work,
 }
 
 #[derive(Subcommand)]
@@ -512,6 +520,7 @@ async fn dispatch(command: Command, json_mode: bool) -> Outcome {
         }
         Command::Evolve(EvolveCommand::Seed { goal }) => commands::evolve::seed(&goal),
         Command::Evolve(EvolveCommand::Status) => commands::evolve::status(),
+        Command::Evolve(EvolveCommand::Work) => commands::evolve::work().await,
         Command::ExitCodes => Outcome::from_report(Report::ok("exit code contract").with_data(
             serde_json::json!({
                 "0": "ok",

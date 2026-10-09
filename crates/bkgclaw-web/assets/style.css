@@ -244,3 +244,21 @@ body {
   padding: 10px 12px; font-size: 12px; line-height: 1.4; overflow-x: auto;
   color: var(--dim); max-height: 260px; overflow-y: auto;
 }
+
+/* --- the live log -------------------------------------------------------
+   Appended to by the daemon as each event happens, so this is what it is
+   doing now — the panel's live channel, and `tail -f` in a browser tab. */
+.changelog {
+  background: var(--bg3); border: 1px solid #21262d; border-radius: 6px;
+  padding: 10px 12px; font-size: 12px; line-height: 1.55; overflow-x: auto;
+  max-height: 340px; overflow-y: auto; margin: 0;
+}
+.changelog .logline { color: var(--dim); white-space: pre-wrap; }
+/* The level word is the only colour in the line, so an improvement or a
+   failure is findable while scrolling a hundred lines of prose. */
+.changelog .logline.better { color: var(--good); }
+.changelog .logline.fail   { color: var(--bad); }
+.changelog .logline.park   { color: var(--warn); }
+.changelog .logline.warn   { color: var(--warn); }
+.changelog .logline.work   { color: var(--accent); }
+.changelog .logline.start  { color: var(--fg); }

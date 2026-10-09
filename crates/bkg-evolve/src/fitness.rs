@@ -152,9 +152,12 @@ pub fn verdict(report: &FitnessReport, baseline: &FitnessReport) -> Verdict {
     if report.clippy_warnings > baseline.clippy_warnings {
         return Verdict::Suspect;
     }
-    if report.tests_passed > baseline.tests_passed {
-        Verdict::Improved
-    } else if report.clippy_warnings < baseline.clippy_warnings {
+    // More tests or fewer warnings than the baseline: either one alone is an
+    // improvement. Written as one condition rather than two identical arms —
+    // a reader should not have to compare blocks to learn they are the same.
+    if report.tests_passed > baseline.tests_passed
+        || report.clippy_warnings < baseline.clippy_warnings
+    {
         Verdict::Improved
     } else {
         Verdict::Neutral

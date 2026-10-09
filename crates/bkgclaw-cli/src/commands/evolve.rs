@@ -40,10 +40,6 @@ pub async fn run(goal: &str, push: bool, strict: bool) -> Outcome {
     };
     match bkg_evolve::run_cycle(&dir, goal, &options).await {
         Ok(result) => {
-            let improved = matches!(
-                result.verdict,
-                bkg_evolve::Verdict::Improved | bkg_evolve::Verdict::Neutral
-            );
             let mut summary = format!(
                 "evolve {id:03} auf `{branch}` — {verdict}: {lesson}",
                 id = result.id,
@@ -63,8 +59,10 @@ pub async fn run(goal: &str, push: bool, strict: bool) -> Outcome {
                     "branch": result.branch,
                 }));
             }
-            let outcome = Outcome::from_report(report);
-            if improved { outcome } else { outcome }
+            // A neutral cycle is not a failure — it answered, the tests
+            // stayed green, nothing regressed. The exit code says "the
+            // command worked"; the summary says what came of it.
+            Outcome::from_report(report)
         }
         Err(error) => Outcome::fail(Verdict::environment(error)),
     }
@@ -242,6 +240,82 @@ pub fn status() -> Outcome {
     };
 
     Outcome::from_report(report.with_data(data))
+}
+
+/// The jailed worker: one work phase, answer written back through the
+/// handshake file.
+///
+/// # Why this exists as a subcommand
+///
+/// The jail re-executes the daemon's own binary inside the sandbox, because
+/// the work phase is the only phase where the model's hands touch the tree.
+/// The parent writes a briefing to a file, this reads it, runs the phase and
+/// writes the outcome to a second file; the parent — outside the sandbox,
+/// with the fitness gate — reads that back.
+///
+/// It has **no fitness gate of its own**. Running it by hand works exactly as
+/// far as "the agent edited some files"; whether that was an improvement is
+/// decided outside, by the judge. A work phase that is trusted to judge itself
+/// is a work phase with no judge.
+pub async fn work() -> Outcome {
+    let dir = std::env::current_dir().unwrap_or_default();
+    let (input, output) = bkg_evolve::work_handshake(&dir);
+
+    let briefing = match std::fs::read_to_string(&input) {
+        Ok(text) => text,
+        Err(error) => {
+            return Outcome::fail(Verdict::environment(format!(
+                "handshake nicht lesbar ({}): {error}",
+                input.display()
+            )));
+        }
+    };
+
+    let parsed: serde_json::Value = serde_json::from_str(&briefing).unwrap_or(serde_json::json!({}));
+    let goal = parsed["goal"].as_str().unwrap_or_default().to_string();
+    let lessons: Vec<String> = parsed["lessons"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| row.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if goal.trim().is_empty() {
+        return Outcome::fail(Verdict::environment(format!(
+            "kein ziel im handshake ({}): {briefing}",
+            input.display()
+        )));
+    }
+
+    let outcome = bkg_evolve::work_phase(&dir, &goal, &lessons).await;
+    match outcome {
+        Ok(result) => {
+            let body = match serde_json::to_string(&result) {
+                Ok(body) => body,
+                Err(error) => {
+                    return Outcome::fail(Verdict::environment(format!(
+                        "antwort nicht serialisierbar: {error}"
+                    )));
+                }
+            };
+            // The parent reads this file and nothing else. A write failure here
+            // means the parent finds no answer — which it reports as a failure,
+            // not as a success with an empty result.
+            if let Err(error) = std::fs::write(&output, body) {
+                return Outcome::fail(Verdict::environment(format!(
+                    "antwort nicht schreibbar ({}): {error}",
+                    output.display()
+                )));
+            }
+            Outcome::success(format!(
+                "work-phase fertig: {} züge, {}",
+                result.turns, result.stop_reason
+            ))
+        }
+        Err(error) => Outcome::fail(Verdict::environment(error)),
+    }
 }
 
 #[cfg(test)]

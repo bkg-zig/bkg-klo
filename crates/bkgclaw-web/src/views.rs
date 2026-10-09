@@ -438,6 +438,28 @@ fn SkillPanel(mut cockpit: Signal<Cockpit>) -> Element {
     }
 }
 
+/// The level word of a log line, so it can be styled.
+///
+/// The daemon writes `<stamp> <level> <message>`; the level is the second
+/// field. Scanning for a known word anywhere in the line is deliberate — the
+/// level has to survive a message that happens to contain the word too.
+fn level_of(line: &str) -> &'static str {
+    for level in ["better", "fail", "park", "warn", "work", "start", "same"] {
+        if line.contains(level) {
+            return match level {
+                "better" => "better",
+                "fail" => "fail",
+                "park" => "park",
+                "warn" => "warn",
+                "work" => "work",
+                "start" => "start",
+                _ => "same",
+            };
+        }
+    }
+    "same"
+}
+
 /// What the self-improvement daemon has done, is doing, and has queued.
 ///
 /// # What this panel is for
@@ -531,6 +553,22 @@ fn EvolvePanel(mut cockpit: Signal<Cockpit>) -> Element {
                         if !attempt.lesson.is_empty() {
                             p { class: "lesson", "{attempt.lesson}" }
                         }
+                    }
+                }
+            }
+
+            // The live channel. Appended to by the daemon as each event happens, so what
+            // is here is what it is doing *now* — not a snapshot from the last
+            // click. Newest last, like `tail -f`.
+            h3 { "live-log" }
+            if evolve.changelog.is_empty() {
+                p { class: "hint", "noch nichts protokolliert — ",
+                    code { "tail -f {evolve.changelog_path}" }
+                }
+            } else {
+                pre { class: "changelog",
+                    for line in evolve.changelog.iter().rev().take(60) {
+                        div { class: "logline {level_of(line)}", "{line}" }
                     }
                 }
             }

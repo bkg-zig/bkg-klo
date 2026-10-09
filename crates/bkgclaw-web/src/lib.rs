@@ -185,4 +185,10 @@ pub struct EvolveReport {
     pub journal_head: String,
     #[serde(default)]
     pub queue_path: String,
+    /// The running log, newest last. Appended to by the daemon as events
+    /// happen, so this is the panel's live channel — no timer, no reload.
+    #[serde(default)]
+    pub changelog: Vec<String>,
+    #[serde(default)]
+    pub changelog_path: String,
 }

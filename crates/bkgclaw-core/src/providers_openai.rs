@@ -341,25 +341,25 @@ impl OpenAiCompatible {
     pub const NIM_DEFAULT_BASE: &'static str = "https://nim.eysho.info/v1";
 
     /// Models that answered a real chat request on the gateway, verified live
-    /// on 2026-10-08 with a "say HALLO" completion against every model in
-    /// `GET /models` (80 listed, 39 answered 404, 28 answered 403 for this
-    /// key, the rest timed out twice). Only the seven that answered are
-    /// here; a listed-but-dead model must not appear as usable.
+    /// on 2026-10-08 and re-verified 2026-10-09 with a "sag nur: ok"
+    /// completion against the previous set. Two of the original seven now
+    /// answer 403 for every available key — `meta/llama-3.2-11b-vision-instruct`
+    /// and `nvidia/riva-translate-4b-instruct-v2`. A model the gateway
+    /// refuses must not appear as usable, so they are gone; a listed-but-dead
+    /// model is worse than a shorter list.
     ///
     /// The first four also answered a tool-call request with a well-formed
-    /// `read_file` call, which is what the agent chain requires. The other
-    /// three respond with text only and stay available for plain chat, out of
+    /// `read_file` call, which is what the agent chain requires. The fifth
+    /// responds with text only and stays available for plain chat, out of
     /// the failover chain.
     pub const NIM_MODELS: &[&str] = &[
-        // Tool-capable, verified 2026-10-08.
+        // Tool-capable, verified 2026-10-09.
         "nvidia/nemotron-3-super-120b-a12b",
         "nvidia/nemotron-3.5-lightning-30b-a3b",
         "meta/muse-glimmer-30b",
         "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-        // Text-only responders, verified 2026-10-08, no tool calling.
+        // Text-only responder, verified 2026-10-09, no tool calling.
         "meta/llama-3.2-90b-vision-instruct",
-        "meta/llama-3.2-11b-vision-instruct",
-        "nvidia/riva-translate-4b-instruct-v2",
     ];
 
     /// The tool-capable subset, in failover order. Separate from `NIM_MODELS`
