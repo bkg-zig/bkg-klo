@@ -10,3 +10,11 @@ crates/bkgclaw-web/target/
 
 # session exports
 20*-*.txt
+
+# local agent brain
+.brain/
+
+# host-built web bundle (install.sh erzeugt es mit dx)
+deploy/web-dist/
+
+deploy/web-dist/

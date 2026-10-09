@@ -307,7 +307,6 @@ dependencies = [
 name = "bkgclaw-office"
 version = "0.1.0"
 dependencies = [
- "bkgclaw-markdown",
  "ratatui",
  "serde",
  "serde_json",
