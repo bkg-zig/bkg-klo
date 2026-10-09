@@ -391,6 +391,28 @@ impl OpenAiCompatible {
         }
     }
 
+    /// One cheap authenticated call: does this credential still list models?
+    ///
+    /// The NIM gateway reports upstream refusals as 403 on the chat path —
+    /// a worker past its request limit answers "Authorization failed" to a
+    /// perfectly good key, for a model that answered an hour ago. Telling
+    /// that apart from a rejected credential decides whether the failover
+    /// chain continues or dies: `Auth` is terminal for the whole turn,
+    /// `Unavailable` moves on to the next model. The models list is the
+    /// cheapest call that proves the credential itself.
+    async fn credential_lists_models(&self) -> bool {
+        match self
+            .http
+            .get(format!("{}/models", self.base))
+            .bearer_auth(&self.key)
+            .send()
+            .await
+        {
+            Ok(response) => response.status().is_success(),
+            Err(_) => false,
+        }
+    }
+
     /// Whether streaming was already turned off for this model.
     fn streaming_blocked(&self, model: &str) -> bool {
         self.stream_blocked
@@ -747,8 +769,21 @@ impl ModelProvider for OpenAiCompatible {
         let code = status.as_u16();
         // Auth and rate limits are model-level facts. Swallowing them into a
         // non-streaming retry would hide a broken credential from the
-        // failover chain.
-        if code == 401 || code == 403 {
+        // failover chain. A 403 is the one that needs looking at: upstream
+        // refusals arrive in the same shape as a rejected credential.
+        if code == 401 {
+            return Err(ModelError::Auth {
+                vendor: self.vendor,
+                reason: format!("HTTP {code}"),
+            });
+        }
+        if code == 403 {
+            if self.credential_lists_models().await {
+                return Err(ModelError::Unavailable {
+                    vendor: self.vendor,
+                    reason: "upstream 403 — credential accepted".into(),
+                });
+            }
             return Err(ModelError::Auth {
                 vendor: self.vendor,
                 reason: format!("HTTP {code}"),
@@ -856,7 +891,22 @@ impl ModelProvider for OpenAiCompatible {
         })?;
 
         let status = response.status();
-        if status.as_u16() == 401 || status.as_u16() == 403 {
+        if status.as_u16() == 401 {
+            return Err(ModelError::Auth {
+                vendor: self.vendor,
+                reason: format!("HTTP {}", status.as_u16()),
+            });
+        }
+        if status.as_u16() == 403 {
+            // The upstream-refusal shape: see `credential_lists_models`.
+            // `Unavailable` keeps the failover chain alive; `Auth` would
+            // kill the whole turn for a credential that works fine.
+            if self.credential_lists_models().await {
+                return Err(ModelError::Unavailable {
+                    vendor: self.vendor,
+                    reason: "upstream 403 — credential accepted".into(),
+                });
+            }
             return Err(ModelError::Auth {
                 vendor: self.vendor,
                 reason: format!("HTTP {}", status.as_u16()),
@@ -1334,6 +1384,103 @@ mod tests {
             }
         });
         port
+    }
+
+    /// A server with fixed statuses per route — the two-call shape the
+    /// upstream-403 question needs: the chat path refuses, the models
+    /// list says whether the credential is the reason.
+    async fn routed_server(models_status: u16, chat_status: u16) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                tokio::spawn(async move {
+                    let mut buffer = vec![0u8; 16_384];
+                    let mut read = 0usize;
+                    loop {
+                        let Ok(n) = socket.read(&mut buffer[read..]).await else {
+                            return;
+                        };
+                        if n == 0 {
+                            return;
+                        }
+                        read += n;
+                        if buffer[..read].windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    let head = String::from_utf8_lossy(&buffer[..read]).to_string();
+                    let status = if head.starts_with("GET /models") {
+                        models_status
+                    } else {
+                        chat_status
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status} x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn an_upstream_403_with_a_working_credential_fails_over_not_out() {
+        // The exact container case: the chat path answers 403 ("Authorization
+        // failed") while the same key lists models fine — the NIM worker was
+        // past its request limit. `Auth` would kill the whole turn and the
+        // chain; `Unavailable` moves on to the next model, which is the
+        // only honest reading of a working credential.
+        let port = routed_server(200, 403).await;
+        let provider =
+            OpenAiCompatible::nvidia_nim("k").with_endpoint(format!("http://127.0.0.1:{port}"));
+        match provider
+            .complete(&streamed_request("nvidia/nemotron-3-super-120b-a12b"))
+            .await
+        {
+            Err(ModelError::Unavailable { .. }) => {}
+            other => panic!("upstream-403 muss Unavailable sein, war {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_403_that_rejects_the_models_list_is_auth() {
+        // Credential rejected everywhere: the models list refuses too, so
+        // the 403 really is about the key — terminal, exactly as before.
+        let port = routed_server(403, 403).await;
+        let provider =
+            OpenAiCompatible::nvidia_nim("k").with_endpoint(format!("http://127.0.0.1:{port}"));
+        match provider
+            .complete(&streamed_request("nvidia/nemotron-3-super-120b-a12b"))
+            .await
+        {
+            Err(ModelError::Auth { .. }) => {}
+            other => panic!("echter credential-403 muss Auth sein, war {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_403_on_the_stream_path_is_unavailable_when_the_key_works() {
+        // Same discrimination on the streamed attempt: the stream request
+        // gets the 403, the models list proves the credential, the chain
+        // may try the next model.
+        let port = routed_server(200, 403).await;
+        let provider =
+            OpenAiCompatible::nvidia_nim("k").with_endpoint(format!("http://127.0.0.1:{port}"));
+        let sink = LogSink(std::sync::Mutex::new(Vec::new()));
+        match provider
+            .complete_streamed(&streamed_request("nvidia/nemotron-3-super-120b-a12b"), &sink)
+            .await
+        {
+            Err(ModelError::Unavailable { .. }) => {}
+            other => panic!("stream-403 mit gutem key muss Unavailable sein, war {other:?}"),
+        }
     }
 
     fn streamed_request(model: &str) -> CompletionRequest {
