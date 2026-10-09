@@ -72,6 +72,29 @@ fn default_true() -> bool {
     true
 }
 
+/// Whether the work phase actually reached the model.
+///
+/// `Ok` means a real attempt happened and the fitness gate may judge the
+/// tree. `Err` names the reason there was nothing to judge — the caller
+/// turns that into a failed cycle, which the daemon's retry-and-park
+/// policy handles, instead of letting an unchanged tree read as "neutral"
+/// and silently consuming the goal.
+fn attempted(stop_reason: &StopReason) -> Result<(), String> {
+    match stop_reason {
+        StopReason::Answered | StopReason::TurnLimit => Ok(()),
+        // The model was asked and looped — a real attempt with a real
+        // answer, even if the answer was a bad one. The gate decides.
+        StopReason::LoopDetected(_) => Ok(()),
+        StopReason::ProviderFailed(why) => {
+            Err(format!("work-phase erreichte das modell nicht: {why}"))
+        }
+        StopReason::BudgetBlocked => {
+            Err("work-phase vom budget blockiert — kein versuch".into())
+        }
+        StopReason::Cancelled => Err("work-phase abgebrochen — kein versuch".into()),
+    }
+}
+
 /// The outcome the caller (CLI, gateway, UI) reports.
 #[derive(Debug, Clone)]
 pub struct CycleResult {
@@ -418,6 +441,15 @@ pub async fn run_cycle(dir: &Path, goal: &str, options: &EvolveOptions) -> Resul
     };
     let answer = work.answer;
 
+    // 3½ — REAL ATTEMPT CHECK. A work phase that never reached the model is
+    // not an attempt: no turns ran, nothing changed, and a fitness verdict
+    // on an unchanged tree reads "neutral" — consuming the goal for a
+    // provider hiccup. The first containerized cycle ate its goal exactly
+    // this way while its model was unreachable behind a jail mount. Fail
+    // instead: the loop counts the failure, retries, and parks the goal
+    // after its attempt limit.
+    attempted(&parse_stop_reason(&work.stop_reason))?;
+
     // 4 — JUDGE: nobody asks the agent how it went.
     let report = fitness::measure(dir);
     let verdict = fitness::verdict(&report, &baseline);
@@ -597,6 +629,31 @@ mod tests {
         // An unset-but-declared variable must not become a readable path.
         let vars = vec![("BKGCLAW_HOME".to_string(), "  ".to_string())];
         assert!(extra_read_roots(vars.into_iter()).is_empty());
+    }
+
+    #[test]
+    fn a_provider_failure_is_not_an_attempt() {
+        // The bug this pins: the first containerized cycle never reached
+        // the model, the unchanged tree read "neutral", and the goal was
+        // consumed for a hiccup. A failed reach is a failed cycle, so the
+        // daemon retries instead of silently dropping the goal.
+        assert!(attempted(&StopReason::ProviderFailed("ollama weg".into())).is_err());
+    }
+
+    #[test]
+    fn budget_and_cancel_are_not_attempts_either() {
+        assert!(attempted(&StopReason::BudgetBlocked).is_err());
+        assert!(attempted(&StopReason::Cancelled).is_err());
+    }
+
+    #[test]
+    fn every_real_attempt_reaches_the_gate() {
+        // Answered and TurnLimit are obvious; LoopDetected is the subtle
+        // one — the model ran and answered, badly, and the fitness gate is
+        // exactly the machinery that exists to judge bad answers.
+        assert!(attempted(&StopReason::Answered).is_ok());
+        assert!(attempted(&StopReason::TurnLimit).is_ok());
+        assert!(attempted(&StopReason::LoopDetected("mehrfach".into())).is_ok());
     }
 
     #[test]
