@@ -1,6 +1,14 @@
 {
-  "active": null,
-  "history": [],
+  "active": "goal_mv06b1yn_kxqqut",
+  "history": [
+    {
+      "version": 1,
+      "goalId": "goal_mv06b1yn_kxqqut",
+      "timestamp": "2026-10-08T23:34:16.482Z",
+      "file": "/home/workspace/bkg-projects/v1/bkgclaw/.goals/history/v1-goal_mv06b1yn_kxqqut.goal.md"
+    }
+  ],
   "archive": [],
-  "createdAt": "2026-10-07T23:40:35.384Z"
+  "createdAt": "2026-10-07T23:40:35.384Z",
+  "updatedAt": "2026-10-08T23:34:16.478Z"
 }

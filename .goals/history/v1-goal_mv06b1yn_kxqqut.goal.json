@@ -1,0 +1,120 @@
+{
+  "id": "goal_mv06b1yn_kxqqut",
+  "version": 1,
+  "metadata": {
+    "title": "JA da fehklt jede menmhe less die file ganzb und mach alles fertig was fejlt bes",
+    "description": "JA da fehklt jede menmhe less die file ganzb und mach alles fertig was fejlt besinders office web evolve tui uiusw !",
+    "template": "implementation",
+    "createdAt": "2026-10-08T23:34:15.983Z",
+    "updatedAt": "2026-10-08T23:34:15.983Z",
+    "status": "analysis_pending",
+    "tags": []
+  },
+  "sections": {
+    "ziel": {
+      "title": "Ziel",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 0
+    },
+    "hintergrund": {
+      "title": "Hintergrund",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 1
+    },
+    "erfolgskriterien": {
+      "title": "Erfolgskriterien",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 2
+    },
+    "einschraenkungen": {
+      "title": "Einschränkungen",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 3
+    },
+    "benoetigte-analyse": {
+      "title": "Benötigte Analyse",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 4
+    },
+    "abhaengigkeiten": {
+      "title": "Abhängigkeiten",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 5
+    },
+    "implementierungsplan": {
+      "title": "Implementierungsplan",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 6
+    },
+    "validierung": {
+      "title": "Validierung",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 7
+    },
+    "tests": {
+      "title": "Tests",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 8
+    },
+    "artefakte": {
+      "title": "Artefakte",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 9
+    },
+    "dokumentation": {
+      "title": "Dokumentation",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 10
+    },
+    "risiken": {
+      "title": "Risiken",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 11
+    },
+    "rollback": {
+      "title": "Rollback",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 12
+    },
+    "abschlussbedingungen": {
+      "title": "Abschlussbedingungen",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 13
+    },
+    "aenderungsverlauf": {
+      "title": "Änderungsverlauf",
+      "content": "",
+      "required": true,
+      "completed": false,
+      "order": 14
+    }
+  }
+}
