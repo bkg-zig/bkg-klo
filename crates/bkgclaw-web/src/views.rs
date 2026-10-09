@@ -277,6 +277,78 @@ fn Markdown(source: String) -> Element {
     }
 }
 
+/// The active session as a pixel figure — the web half of the office.
+///
+/// The TUI shows the same office as a ratatui strip; both read one state
+/// machine (`bkgclaw-office`'s room model), so the picture means the same
+/// thing everywhere: typing hands are a running turn, the `?` is a pending
+/// approval, seated is idle. The browser paints the shared pixels as CSS
+/// blocks — one span per pixel, the same colours the terminal shows.
+#[component]
+fn OfficeStrip(mut cockpit: Signal<Cockpit>) -> Element {
+    let read = cockpit.read();
+    let (session, busy, waiting) = (
+        read.session.clone(),
+        read.busy,
+        read.pending_approval.is_some(),
+    );
+    drop(read);
+
+    // No session yet: the office is empty, and an empty strip is better
+    // than a figure with no session to sit for.
+    let Some(session) = session else {
+        return rsx! {};
+    };
+
+    // One agent, its state from the same fields the TUI office reads — busy
+    // for a running turn, waiting when an approval blocks it, idle otherwise.
+    let mut office = bkgclaw_office::Office::with_capacity(1, 26, 32);
+    let activity = if waiting {
+        bkgclaw_office::room::Activity::Waiting {
+            reason: "freigabe".into(),
+        }
+    } else if busy {
+        bkgclaw_office::room::Activity::Working {
+            detail: String::new(),
+        }
+    } else {
+        bkgclaw_office::room::Activity::Idle
+    };
+    let label = activity.label();
+    office.admit(bkgclaw_office::room::Agent {
+        id: session.clone(),
+        label: session,
+        activity,
+        since_ms: 0,
+    });
+    // A still, not an animation: the state, not the frame, is the
+    // information, so the beat stays at zero and no timer runs.
+    let pixels = bkgclaw_office::portrait::portrait(&office, 0, 0, 0);
+
+    rsx! {
+        div { class: "office-strip",
+            div { class: "office-canvas",
+                for y in 0..pixels.height() {
+                    div { class: "office-row",
+                        for x in 0..pixels.width() {
+                            match pixels.get(x, y) {
+                                Some(rgb) => rsx! {
+                                    span {
+                                        class: "px",
+                                        style: "background:rgb({rgb.r},{rgb.g},{rgb.b})",
+                                    }
+                                },
+                                None => rsx! { span { class: "px empty" } },
+                            }
+                        }
+                    }
+                }
+            }
+            span { class: "office-label", "{label}" }
+        }
+    }
+}
+
 /// Send the current input to the active session. Shared by the form and
 /// the Enter key so both do exactly the same thing.
 fn submit_message(cockpit: &mut Signal<Cockpit>) {
@@ -298,6 +370,8 @@ fn Chat(mut cockpit: Signal<Cockpit>) -> Element {
             if let Some(pending) = cockpit.read().pending_approval.clone() {
                 ApprovalBar { cockpit, pending }
             }
+
+            OfficeStrip { cockpit }
 
             div { class: "transcript",
                 for item in cockpit.read().transcript.clone().into_iter() {

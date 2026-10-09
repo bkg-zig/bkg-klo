@@ -36,6 +36,10 @@ web-sys = { version = "0.3", features = ["WebSocket", "MessageEvent", "console",
 # complains.
 bkgclaw-protocol = { path = "../bkgclaw-protocol" }
 bkgclaw-markdown = { path = "../bkgclaw-markdown", default-features = false }
+# The office's room model, figures and palette — the state machine, without
+# the terminal renderers (ratatui does not exist in a browser). The web paints
+# the shared pixels itself, as CSS blocks.
+bkgclaw-office = { path = "../bkgclaw-office", default-features = false }
 
 [lib]
 crate-type = ["lib", "cdylib"]

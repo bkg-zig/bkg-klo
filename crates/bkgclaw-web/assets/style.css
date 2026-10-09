@@ -262,3 +262,22 @@ body {
 .changelog .logline.warn   { color: var(--warn); }
 .changelog .logline.work   { color: var(--accent); }
 .changelog .logline.start  { color: var(--fg); }
+
+/* --- the office strip -----------------------------------------------------
+   The active session as a pixel figure, painted from the same room model
+   the TUI office reads. One span per pixel: the figure is not text, and
+   text could not put a lit monitor next to a dark desk. */
+.office-strip {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 12px; background: var(--bg2);
+  border-bottom: 1px solid #21262d;
+}
+.office-strip .px { width: 6px; height: 6px; display: inline-block; }
+.office-strip .px.empty { background: transparent; }
+.office-strip .office-row { line-height: 0; height: 6px; white-space: nowrap; }
+.office-strip .office-canvas { flex: 0 0 auto; }
+/* The label is what the figure means — typing, waiting, idle — in words,
+   for the operator who has not learned the picture yet. */
+.office-strip .office-label {
+  color: var(--dim); font-size: 13px; letter-spacing: 0.4px;
+}
