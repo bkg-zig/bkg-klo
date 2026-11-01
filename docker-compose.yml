@@ -1,0 +1,69 @@
+name: bkg-evolution
+
+# Kanonische Runtime-Location: /srv/bkg/services/bkg-evolution
+# Diese Datei dort ablegen und mit `docker compose up -d --build` starten.
+
+secrets:
+  bkg_evolution_gateway_token:
+    file: ./secrets/bkg_evolution_gateway_token.txt
+  bkg_evolution_nim_key:
+    file: ./secrets/bkg_evolution_nim_key.txt
+
+services:
+  bkgclaw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bkgclaw:local
+    container_name: bkg-evolution
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        export BKGCLAW_GATEWAY_TOKEN=$$(cat /run/secrets/bkg_evolution_gateway_token 2>/dev/null)
+        export NIM_API_KEY=$$(cat /run/secrets/bkg_evolution_nim_key 2>/dev/null)
+        if [ -z "$$BKGCLAW_GATEWAY_TOKEN" ]; then echo "gateway token fehlt (fail-closed)"; exit 1; fi
+        exec bkgclaw gateway --host 0.0.0.0 --port 8787
+    environment:
+      BKGCLAW_WEB_DIR: /app/web-dist
+    secrets:
+      - bkg_evolution_gateway_token
+      - bkg_evolution_nim_key
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - bkgclaw-home:/root/.bkgclaw
+      - bkgclaw-workspace:/work/.bkgclaw
+    networks:
+      bkg_net:
+        ipv4_address: 172.30.0.130
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.evolution-api.rule=Host(`evo.eysho.info`) && (PathPrefix(`/api`) || PathPrefix(`/ws`) || Path(`/api/health`))"
+      - "traefik.http.routers.evolution-api.entrypoints=websecure"
+      - "traefik.http.routers.evolution-api.tls.certresolver=le"
+      - "traefik.http.routers.evolution-api.priority=10"
+      - "traefik.http.routers.evolution-api.service=evolution-api-svc"
+      - "traefik.http.services.evolution-api-svc.loadbalancer.server.port=8787"
+      - "traefik.http.routers.evolution-ui.rule=Host(`evo.eysho.info`)"
+      - "traefik.http.routers.evolution-ui.entrypoints=websecure"
+      - "traefik.http.routers.evolution-ui.tls.certresolver=le"
+      - "traefik.http.routers.evolution-ui.priority=1"
+      - "traefik.http.services.evolution-ui-svc.loadbalancer.server.port=8787"
+      - "traefik.http.routers.evolution-http.rule=Host(`evo.eysho.info`)"
+      - "traefik.http.routers.evolution-http.entrypoints=web"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8787/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+networks:
+  bkg_net:
+    external: true
+
+volumes:
+  bkgclaw-home:
+  bkgclaw-workspace:

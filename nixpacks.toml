@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["rustc", "cargo", "nodejs_20"]
+
+[phases.build]
+cmds = ["cargo build --release"]
+
+[start]
+cmd = "./target/release/bkgclaw gateway --host 0.0.0.0 --port 8787"

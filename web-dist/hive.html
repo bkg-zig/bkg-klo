@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"><title>BKG HIVE — WebMCP + WebLLM</title>
+<style>*{border-radius:0!important;box-sizing:border-box}body{margin:0;background:#0F1D32;color:#FFFDF7;font-family:"JetBrains Mono",monospace}
+.box{border:3px solid #000;box-shadow:6px 6px 0 #000;background:#FFFDF7;color:#0F1D32;margin:12px;padding:12px}
+button,input{font:inherit;border:3px solid #000;box-shadow:4px 4px 0 #000;background:#FFFDF7;padding:6px 10px}
+#prog{border:3px solid #000;height:22px;margin-top:8px}#bar{height:100%;width:0;background:#0F1D32}
+pre{white-space:pre-wrap;background:#081426;color:#FFFDF7;padding:10px;border:3px solid #000;min-height:80px}</style></head><body>
+<div class="box"><b>BKG HIVE — WebLLM ORC</b> <span id="st">Modell nicht geladen</span>
+<button id="load">Qwen2-0.5B laden</button><div id="prog"><div id="bar"></div></div>
+<p><input id="q" value="Spawn 3 agents" size="40"> <button id="send">Chatten</button></p><pre id="out"></pre></div>
+<div class="box"><b>WebMCP Tools</b> <span id="tools"></span><pre id="log"></pre></div>
+<script type="module">
+import { initializeBuiltinWebMCP } from 'https://esm.run/@opentiny/next-sdk';
+try{ initializeBuiltinWebMCP(); }catch(e){ log('WebMCP Fallback: '+e.message); }
+const TOOLS=['place_desk','place_chair','place_agent','move_agent','send_envelope','assign_task','set_agent_status','spawn_agent','approve'];
+document.getElementById('tools').textContent=TOOLS.join(', ');
+function log(m){document.getElementById('log').textContent+=m+'\n';}
+async function call(name,args){ log('CALL '+name+' '+JSON.stringify(args));
+  const r=await fetch('/api/office/tools/'+name,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({args})});
+  const j=await r.json(); if(!j.ok) throw new Error(j.error); log('OK '+name); return j.data; }
+for(const n of TOOLS){ if(document.modelContext) document.modelContext.registerTool({name:n,description:n,inputSchema:{type:'object',properties:{}},execute:async(a)=>{await call(n,a);return{content:[{type:'text',text:n+' ok'}]};}}); }
+let engine=null, mock=false;
+document.getElementById('load').onclick=async()=>{
+  try{ const { CreateMLCEngine } = await import('https://esm.run/@mlc-ai/web-llm');
+    engine=await CreateMLCEngine('Qwen2-0.5B-Instruct-q4f16_1-MLC',{initProgressCallback:p=>{
+      document.getElementById('bar').style.width=Math.round((p.progress||0)*100)+'%';
+      document.getElementById('st').textContent=p.text||'laedt'; }});
+    document.getElementById('st').textContent='Qwen2-0.5B bereit (WebGPU)';
+  }catch(e){ mock=true; document.getElementById('st').textContent='Mock-Fallback (kein WebGPU): '+e.message; }
+};
+document.getElementById('send').onclick=async()=>{
+  const q=document.getElementById('q').value, out=document.getElementById('out');
+  const intent=q.toLowerCase().includes('spawn')?'spawn_agent':'send_envelope';
+  if(engine){ const r=await engine.chat.completions.create({messages:[{role:'system',content:'You are Michael, GOD orchestrator, route via tools, like gas station'},{role:'user',content:q}],response_format:{type:'json_object'}});
+    out.textContent=r.choices[0].message.content; }
+  else out.textContent=JSON.stringify({tool:intent,args:{cli:'opencode',name:'Agent',approved:true}});
+  try{ await call(intent,{cli:'opencode',name:'Agent',desk:'desk_snes_01.png',approved:true,text:q}); }catch(e){ log('Gateway: '+e.message); }
+};
+</script></body></html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8"><title>MUNDER DIFFLIN — Chef-Büro</title>
+<style>
+*{border-radius:0!important;box-sizing:border-box}
+body{margin:0;background:#050d1a;color:#cfe8ff;font-family:"JetBrains Mono",monospace}
+.top{margin:10px;border:3px solid #35c4ff;background:#0a1a30;padding:8px 12px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.top b{font-size:22px;color:#fff;letter-spacing:1px}
+.wrap{display:flex;gap:10px;margin:0 10px;align-items:flex-start}
+canvas{border:3px solid #35c4ff;image-rendering:pixelated;background:#0d1f38;cursor:crosshair;flex:none}
+.side{flex:1;min-width:340px;display:flex;flex-direction:column;gap:10px}
+.pan{border:2px solid #35c4ff;background:#0a1a30;padding:10px}
+.pan h3{margin:0 0 8px;font-size:13px;color:#7fdcff;letter-spacing:1px}
+button,select,input{font:inherit;border:2px solid #35c4ff;background:#0d2a4a;color:#cfe8ff;padding:5px 9px;cursor:pointer}
+button:hover{background:#35c4ff;color:#04101f}
+.cols{display:flex;gap:8px}.col{flex:1;border:2px solid #1d4e79;padding:6px;min-height:96px}
+.task{border:2px solid #1d4e79;margin:5px 0;padding:4px;font-size:12px;cursor:pointer;background:#0d2a4a}
+.done .task{border-color:#2ecc71}
+.bar{border:2px solid #35c4ff;height:18px}.fill{height:100%;background:#2ecc71}
+pre{background:#04101f;border:2px solid #1d4e79;padding:8px;font-size:12px;overflow:auto}
+#log{border:2px solid #1d4e79;background:#04101f;color:#9fe8ff;padding:8px;height:86px;overflow:auto;white-space:pre-wrap;font-size:12px}
+.bot{margin:10px;border:3px solid #35c4ff;background:#0a1a30;padding:8px 12px;display:flex;gap:22px;color:#7fdcff}
+.tag{border:2px solid #1d4e79;padding:2px 8px;font-size:12px}
+.kw{color:#ff9d5c}.fn{color:#7fdcff}.str{color:#9dff9d}
+</style></head><body>
+<div class="top"><b>MUNDER DIFFLIN</b><span id="online" style="color:#39ff6a">● AGENTS ONLINE 0/0</span>
+<select id="cli"><option>opencode</option><option>claude-code</option><option>codex</option><option>grok</option><option>kimi</option><option>qwen</option><option>copilot</option><option>cursor</option><option>antigravity</option><option>crush</option><option>pi</option></select>
+<input id="nm" value="Neuer Agent" size="11">
+<button id="hire">+ Hire</button><button id="spawn3">Spawn 3</button><button id="run">▶ Run Floor</button></div>
+<div class="wrap">
+<canvas id="cv" width="672" height="480"></canvas>
+<div class="side">
+<div class="pan"><h3>▣ COMMAND CENTER — TASK BOARD (Klick = weiter)</h3><div class="cols">
+<div class="col" id="todo"><b>TODO</b></div><div class="col" id="prog"><b style="color:#3fa9ff">IN PROGRESS</b></div><div class="col done" id="done"><b style="color:#2ecc71">DONE</b></div></div>
+<p><input id="newtask" value="Fix API bug" size="16"> <button id="addtask">+ Task</button></p></div>
+<div class="pan"><h3>◷ SCHEDULED MISSIONS</h3>
+<div>10:30 Ship feature branch<br>12:00 Run test suite<br>14:00 Deploy to staging<br>16:00 Sync &amp; review</div></div>
+<div class="pan"><h3>⬢ TOKEN &amp; COST</h3><div>Remaining</div>
+<div class="bar"><div class="fill" id="tok" style="width:62%"></div></div>
+<div>62% · Used / Limit 1.9M / 3.0M · Est. Cost $4.32</div></div>
+<div class="pan"><h3>⚲ MEMORY SEARCH</h3><input id="memq" value="auth system" size="16">
+<span class="tag">#auth</span> <span class="tag">#api</span> <span class="tag">#backend</span> <span class="tag">#docs</span>
+<p>Agent: <b id="selname">—</b></p>
+<button data-st="GreenActive">Aktiv</button><button data-st="AmberAttention">Achtung</button><button data-st="RedError">Fehler</button><button data-st="BlueReady">Bereit</button>
+<button id="envelope">✉ Envelope</button></div>
+<div class="pan"><h3>▤ CODE EDITOR — app.ts · GIT main +12 −3</h3>
+<pre>1 <span class="kw">export async function</span> <span class="fn">handler</span>({
+2   req: Request, res: Response
+3 }) {
+4   <span class="kw">const</span> user = <span class="kw">await</span> <span class="fn">getUser</span>(req.headers.authorization);
+5   <span class="kw">return</span> res.json({ user });
+6 }</pre></div>
+<div class="pan"><h3>▤ ORCHESTRATOR (MICHAEL)</h3>
+<div id="orch">&gt; Coordinating agents…<br>&gt; All systems nominal ✓<br>&gt; Next: verify PRs</div>
+<p><button id="pause">⏸ PAUSE</button> <button id="breaker">🛡 CIRCUIT BREAKER: AUS</button> <b style="color:#39ff6a">MICHAEL</b></p>
+<canvas id="pulse" width="300" height="28" style="border:2px solid #1d4e79;width:100%"></canvas>
+<div id="log"></div></div>
+</div></div>
+<div class="bot"><span id="bagents">0 AGENTS</span><span id="bmsg">✉ 0 MESSAGES</span><span style="color:#39ff6a">● SYSTEM ONLINE</span><span>BUILD · SHIP · REPEAT</span></div>
+<script type="module">
+import { initializeBuiltinWebMCP } from 'https://esm.run/@opentiny/next-sdk';
+try{ initializeBuiltinWebMCP(); }catch(e){}
+const TILE=32, W=21, H=15, COLORS={GreenActive:'#39ff6a',AmberAttention:'#ffb000',BlueReady:'#3fa9ff',RedError:'#ff4d4d'};
+const GRID=[[2,4],[6,4],[10,4],[2,8],[6,8],[10,8],[2,12],[6,12],[10,12]];
+let S={desks:GRID.map(([x,y],i)=>({x,y,asset:i%2?'desk_snes_01.png':'desk_dual_monitor_01.png',station_type:'CodePump'})),
+employees:[],tasks:[{id:'T1',title:'Fix API bug',status:'todo'},{id:'T2',title:'Add tests',status:'todo'},{id:'T3',title:'Implement payment flow',status:'prog'},{id:'T4',title:'UI polish',status:'prog'},{id:'T5',title:'Auth v2',status:'done'},{id:'T6',title:'Deploy staging',status:'done'}],env:0,paused:false,breaker:false,sel:null,walkers:[]};
+const NAMES=['ALEX','SAM','TAYLOR','JORDAN','CASEY','MORGAN','RILEY','JAMIE','DREW'];
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d'); ctx.imageSmoothingEnabled=false;
+const $=id=>document.getElementById(id);
+function log(m){ $('log').textContent+=m+'\n'; $('log').scrollTop=9999; }
+function save(){ try{localStorage.setItem('chef2',JSON.stringify(S));}catch(e){} }
+function load(){ try{const r=localStorage.getItem('chef2'); if(r) S=Object.assign(S,JSON.parse(r));}catch(e){} }
+async function api(tool,args){ log(tool+' '+JSON.stringify(args));
+  try{ const r=await fetch('/api/office/tools/'+tool,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({args})});
+    const j=await r.json(); if(!j.ok) throw new Error(j.error); await refresh(); return j.data;
+  }catch(e){ log('offline-lokal: '+e.message); return null; } }
+async function refresh(){ try{ const r=await fetch('/api/office'); const j=await r.json();
+  if(j.ok&&j.data&&j.data.employees&&j.data.employees.length){ S.employees=j.data.employees.map((e,i)=>({...e,name:(e.name||'AGENT').toUpperCase(),_p:[(GRID[i%9][0])*TILE+16,(GRID[i%9][1])*TILE+30]})); } }catch(e){} render(); }
+function hire(cli,name){ const slot=GRID[S.employees.length%GRID.length];
+  const emp={id:'emp_'+(S.employees.length+1),name:(name||NAMES[S.employees.length%NAMES.length]).toUpperCase(),harness_cli:cli,sprite:'agent_typing_02.png',desk:[slot[0],slot[1]],status:S.employees.length===4?'AmberAttention':'GreenActive',_p:[13*TILE,2*TILE]};
+  S.employees.push(emp); S.walkers.push(emp); save(); api('spawn_agent',{cli,name:emp.name,desk:'desk_snes_01.png',approved:true}); log('eingestellt: '+emp.name+' ('+cli+')'); render(); return emp; }
+function render(){ for(const [id] of [['todo'],['prog'],['done']]) $(id).innerHTML=id==='todo'?'<b>TODO</b>':id==='prog'?'<b style="color:#3fa9ff">IN PROGRESS</b>':'<b style="color:#2ecc71">DONE</b>';
+  for(const t of S.tasks){ const d=document.createElement('div'); d.className='task'; d.textContent=(t.status==='done'?'● ':'○ ')+t.title;
+    d.onclick=()=>{ t.status=t.status==='todo'?'prog':'done'; save(); render(); }; $(t.status).appendChild(d); }
+  $('online').textContent='● AGENTS ONLINE '+S.employees.filter(e=>e.status!=='RedError').length+'/'+S.employees.length;
+  $('bagents').textContent=S.employees.length+' AGENTS'; $('bmsg').textContent='✉ '+S.env+' MESSAGES';
+  $('selname').textContent=S.sel?(S.employees.find(e=>e.id===S.sel)?.name||'—'):'—'; }
+function desk(x,y,glow){ ctx.fillStyle=glow; ctx.fillRect(x*TILE+1,y*TILE+16,62,26);
+  ctx.fillStyle='#d8b06a'; ctx.fillRect(x*TILE+3,y*TILE+22,60,16);
+  ctx.fillStyle='#0a1a30'; ctx.fillRect(x*TILE+8,y*TILE+2,22,15); ctx.fillRect(x*TILE+36,y*TILE+2,22,15);
+  ctx.fillStyle='#39ff6a'; ctx.fillRect(x*TILE+10,y*TILE+4,8,3); ctx.fillStyle='#ff5ca8'; ctx.fillRect(x*TILE+40,y*TILE+8,10,3);
+  ctx.fillStyle='#2b6cb0'; ctx.fillRect(x*TILE+24,y*TILE+26,18,14); }
+function person(px,py,color,hair){ ctx.fillStyle='#f2c79b'; ctx.fillRect(px-5,py-20,10,9);
+  ctx.fillStyle=hair; ctx.fillRect(px-6,py-22,12,5); ctx.fillStyle=color; ctx.fillRect(px-7,py-11,14,13); }
+let tick=0;
+function draw(){ tick++; ctx.clearRect(0,0,672,480);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){ ctx.fillStyle=(x+y)%2?'#132a47':'#10243d'; ctx.fillRect(x*TILE,y*TILE,TILE,TILE); }
+  ctx.fillStyle='#081426'; ctx.fillRect(0,0,W*TILE,64);
+  for(let i=0;i<5;i++){ const x=90+i*95; ctx.fillStyle='#ff9d5c'; ctx.fillRect(x,8,70,44); ctx.fillStyle='#2b1a4d'; ctx.fillRect(x+4,12,28,18); ctx.fillStyle='#ffd76a'; ctx.fillRect(x+40,30,6,6); ctx.fillRect(x+52,16,5,5); }
+  ctx.fillStyle='#7fdcff'; ctx.font='11px monospace'; ctx.fillText('BETTER CODE TOGETHER ♥',14,26);
+  ctx.strokeStyle='#c9a86a'; ctx.lineWidth=3; ctx.strokeRect(14*TILE+4,70,6*TILE+8,150);
+  ctx.fillStyle='#3a2415'; ctx.fillRect(15*TILE,92,5*TILE,116); ctx.fillStyle='#ffd76a'; ctx.fillRect(16*TILE,102,18,22);
+  ctx.fillStyle='#FFFDF7'; ctx.font='10px monospace'; ctx.fillText('PLAN',16*TILE+40,102); ctx.fillText('☐ Build',16*TILE+40,116); ctx.fillText('☐ Test',16*TILE+40,130); ctx.fillText('☐ Ship',16*TILE+40,144);
+  person(16*TILE+40,190,'#3fa9ff','#222'); ctx.fillStyle='#0a1a30'; ctx.fillRect(15*TILE+18,196,64,12); ctx.fillStyle='#7fdcff'; ctx.fillText('MICHAEL',15*TILE+30,205);
+  ctx.fillStyle='#5b3a1e'; ctx.fillRect(20,11*TILE,86,40); ctx.fillStyle='#2ecc71'; ctx.fillRect(36,11*TILE-8,10,10); ctx.fillRect(70,11*TILE-8,8,8);
+  for(const d of S.desks){ const occ=S.employees.find(e=>e.desk&&e.desk[0]===d.x&&e.desk[1]===d.y);
+    desk(d.x,d.y,occ?(COLORS[occ.status]||'#39ff6a'):'#1d4e79'); }
+  for(const e of S.employees){ const p=e._p||(e._p=[e.desk[0]*TILE+16,e.desk[1]*TILE+30]);
+    const tx=e.desk?e.desk[0]*TILE+33:e.desk?.[0], ty=e.desk?e.desk[1]*TILE+32:64;
+    if(!S.paused&&e.desk){ p[0]+=(e.desk[0]*TILE+33-p[0])*0.05; p[1]+=(e.desk[1]*TILE+34-p[1])*0.05; }
+    const bob=(!S.paused&&Math.abs(p[0]-tx)>4)?Math.sin(tick/6)*1.5:0;
+    person(p[0],p[1]+bob,'#2b6cb0','#3a2415');
+    ctx.fillStyle=COLORS[e.status]||'#39ff6a'; ctx.font='10px monospace';
+    const label=(e.status==='AmberAttention'?'⚠ ':'● ')+e.name; ctx.fillStyle='#04101f'; const w=ctx.measureText(label).width+8; ctx.fillRect(p[0]-w/2,p[1]-40,w,13);
+    ctx.fillStyle=COLORS[e.status]||'#39ff6a'; ctx.fillText(label,p[0]-w/2+4,p[1]-30);
+    if(e.id===S.sel){ ctx.strokeStyle='#ffbf00'; ctx.lineWidth=2; ctx.strokeRect(p[0]-12,p[1]-24,24,30); } }
+  if(!S.paused&&tick%90===0&&S.employees.length){ const e=S.employees[Math.floor(Math.random()*S.employees.length)]; S.env++; log('✉ Envelope von '+e.name); render(); }
+  const pc=$('pulse').getContext('2d'); pc.fillStyle='#04101f'; pc.fillRect(0,0,300,28); pc.strokeStyle='#39ff6a'; pc.beginPath();
+  for(let x=0;x<300;x++){ const y=14+Math.sin(x/9+tick/8)*4+(x%60<4?-7:0); x===0?pc.moveTo(x,y):pc.lineTo(x,y); } pc.stroke();
+  requestAnimationFrame(draw); }
+cv.onclick=ev=>{ const r=cv.getBoundingClientRect(), gx=Math.floor((ev.clientX-r.left)/(r.width/W)), gy=Math.floor((ev.clientY-r.top)/(r.height/H));
+  const hit=S.employees.find(e=>e.desk&&Math.abs(e.desk[0]-gx)<=1&&e.desk[1]===gy);
+  if(hit){ S.sel=hit.id; log('gewaehlt: '+hit.name); } else { S.desks.push({x:gx,y:gy,asset:'desk_dual_monitor_01.png',station_type:'CodePump'}); api('place_desk',{x:gx,y:gy}); }
+  save(); render(); };
+$('hire').onclick=()=>hire($('cli').value,$('nm').value);
+$('spawn3').onclick=()=>{ for(let i=0;i<3;i++) hire($('cli').value,NAMES[(S.employees.length)%NAMES.length]); };
+$('run').onclick=async()=>{ if(S.breaker){log('BREAKER offen');return;} await api('send_envelope',{from:'emp_1',to:'desk',text:'tankstelle'}); S.env++; render(); };
+$('pause').onclick=()=>{ S.paused=!S.paused; $('pause').textContent=S.paused?'▶ AUTO':'⏸ PAUSE'; $('orch').innerHTML=S.paused?'&gt; Pausiert vom Chef':'&gt; Coordinating agents…<br>&gt; All systems nominal ✓<br>&gt; Next: verify PRs'; };
+$('breaker').onclick=()=>{ S.breaker=!S.breaker; $('breaker').textContent='🛡 CIRCUIT BREAKER: '+(S.breaker?'OFFEN':'AUS'); };
+$('addtask').onclick=()=>{ S.tasks.push({id:'T'+Date.now(),title:$('newtask').value,status:'todo'}); save(); render(); };
+document.querySelectorAll('[data-st]').forEach(b=>b.onclick=async()=>{ const e=S.employees.find(x=>x.id===S.sel); if(!e){log('erst Agent anklicken');return;} e.status=b.dataset.st; await api('set_agent_status',{id:e.id,status:e.status}); save(); render(); });
+$('envelope').onclick=async()=>{ await api('send_envelope',{from:S.sel||'chef',to:'desk',text:'vom Chef'}); S.env++; render(); };
+const TOOLS=['place_desk','place_chair','place_agent','move_agent','send_envelope','assign_task','set_agent_status','spawn_agent','approve'];
+if(document.modelContext) for(const n of TOOLS) document.modelContext.registerTool({name:n,description:n,inputSchema:{type:'object',properties:{}},execute:async a=>{await api(n,a);return{content:[{type:'text',text:n+' ok'}]};}});
+load(); if(!S.employees.length) NAMES.forEach((n,i)=>{ const s=GRID[i]; S.employees.push({id:'emp_'+(i+1),name:n,harness_cli:['opencode','claude-code','codex'][i%3],desk:[s[0],s[1]],status:i===4?'AmberAttention':'GreenActive',_p:[13*TILE,70]}); });
+refresh(); draw();
+</script></body></html>

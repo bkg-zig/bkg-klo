@@ -1,0 +1,9 @@
+.git
+target
+.bkgclaw
+secrets
+*.md
+!README.md
+web-dist/assets/*.map
+node_modules
+.tmp

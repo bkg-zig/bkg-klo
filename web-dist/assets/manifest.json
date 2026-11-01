@@ -1,0 +1,10 @@
+{
+  "pivot": "bottom-center",
+  "note": "Erwartete BKG-SNES-Assets (RGBA, transparent). Fehlende PNGs rendert native.html als Canvas-Farbfelder — Floor bleibt ohne ZIP nutzbar.",
+  "floors": ["floor_tile_00.png", "floor_tile_01.png"],
+  "walls": ["wall_brick_01.png"],
+  "doors": ["door_wood_iso_01.png"],
+  "desks": ["desk_dual_monitor_01.png", "desk_snes_01.png", "server_rack_snes_01.png", "cabinet_01.png", "plant_snes_01.png", "desk_wood_01.png", "chair_blue_01.png", "chair_green_01.png"],
+  "agents": ["agent_typing_02.png", "agent_walking_right_01.png", "agent_celebrating_01.png"],
+  "status": ["status_green.png", "status_amber.png", "status_blue.png", "status_red.png"]
+}
