@@ -1475,7 +1475,10 @@ mod tests {
             OpenAiCompatible::nvidia_nim("k").with_endpoint(format!("http://127.0.0.1:{port}"));
         let sink = LogSink(std::sync::Mutex::new(Vec::new()));
         match provider
-            .complete_streamed(&streamed_request("nvidia/nemotron-3-super-120b-a12b"), &sink)
+            .complete_streamed(
+                &streamed_request("nvidia/nemotron-3-super-120b-a12b"),
+                &sink,
+            )
             .await
         {
             Err(ModelError::Unavailable { .. }) => {}

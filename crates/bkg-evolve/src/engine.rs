@@ -21,14 +21,14 @@
 
 use std::path::{Path, PathBuf};
 
-use bkgclaw_core::loop_engine::{run_agent_turns_with, StopReason};
+use bkgclaw_core::loop_engine::{StopReason, run_agent_turns_with};
 use bkgclaw_core::models::Message;
 use bkgclaw_core::tools::Policy;
 use bkgclaw_core::{Budget, Detector, LoopConfig};
 
 use crate::fitness::{self, FitnessReport, Verdict};
 use crate::gitops;
-use crate::memory::{lesson_for, Attempt, AttemptArchive};
+use crate::memory::{Attempt, AttemptArchive, lesson_for};
 
 /// What one cycle should do differently.
 #[derive(Debug, Clone)]
@@ -88,9 +88,7 @@ fn attempted(stop_reason: &StopReason) -> Result<(), String> {
         StopReason::ProviderFailed(why) => {
             Err(format!("work-phase erreichte das modell nicht: {why}"))
         }
-        StopReason::BudgetBlocked => {
-            Err("work-phase vom budget blockiert — kein versuch".into())
-        }
+        StopReason::BudgetBlocked => Err("work-phase vom budget blockiert — kein versuch".into()),
         StopReason::Cancelled => Err("work-phase abgebrochen — kein versuch".into()),
     }
 }
@@ -114,7 +112,13 @@ pub struct CycleResult {
 pub fn slug(goal: &str) -> String {
     let mut slug: String = goal
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     slug = slug.trim_matches('-').to_string();
     if slug.is_empty() {
@@ -223,7 +227,9 @@ pub async fn work_phase(dir: &Path, goal: &str, lessons: &[String]) -> Result<Wo
     };
     let transcript = vec![
         Message::system(evolve_prompt(dir, goal, lessons)),
-        Message::user(format!("Verbessere jetzt: {goal}. Lauf die Tests, bevor du fertig meldest.")),
+        Message::user(format!(
+            "Verbessere jetzt: {goal}. Lauf die Tests, bevor du fertig meldest."
+        )),
     ];
 
     let mut router = bkgclaw_core::Router::new(&registry, chain);
@@ -316,7 +322,11 @@ pub fn work_handshake(dir: &Path) -> (PathBuf, PathBuf) {
 /// the agent can write nothing outside this tree. Fail-closed — a
 /// refused jail refuses the cycle; an unsandboxed work phase is not an
 /// option the daemon ever takes.
-async fn jailed_work_phase(dir: &Path, goal: &str, lessons: &[String]) -> Result<WorkOutcome, String> {
+async fn jailed_work_phase(
+    dir: &Path,
+    goal: &str,
+    lessons: &[String],
+) -> Result<WorkOutcome, String> {
     let (in_path, out_path) = work_handshake(dir);
     if let Some(parent) = in_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("handshake-verzeichnis: {e}"))?;
@@ -332,8 +342,8 @@ async fn jailed_work_phase(dir: &Path, goal: &str, lessons: &[String]) -> Result
     // panic case, which the map handles; the closure's own `JailOutcome` is the
     // value that comes back.
     let handle = tokio::task::spawn_blocking(move || {
-        let exe = std::env::current_exe()
-            .map_err(|e| format!("eigene binary nicht gefunden: {e}"))?;
+        let exe =
+            std::env::current_exe().map_err(|e| format!("eigene binary nicht gefunden: {e}"))?;
         // Read: the filesystem root *plus* the mounts Landlock cannot reach
         // through it — rules are per mount, and a container's secrets
         // (`/run/secrets`, tmpfs) and data volumes live on their own.
@@ -377,7 +387,11 @@ async fn jailed_work_phase(dir: &Path, goal: &str, lessons: &[String]) -> Result
 }
 
 /// Run one complete evolution cycle.
-pub async fn run_cycle(dir: &Path, goal: &str, options: &EvolveOptions) -> Result<CycleResult, String> {
+pub async fn run_cycle(
+    dir: &Path,
+    goal: &str,
+    options: &EvolveOptions,
+) -> Result<CycleResult, String> {
     if goal.trim().is_empty() {
         return Err("ein evolve-lauf braucht ein ziel: bkgclaw evolve run \"…\"".into());
     }
@@ -576,7 +590,10 @@ pub fn init_repo(dir: &Path, origin: Option<&str>) -> Result<(), String> {
     let dirty = gitops::dirty_files(dir);
     if !dirty.is_empty() {
         gitops::add_all(dir)?;
-        gitops::commit(dir, "evolve 0000: kernel-baseline — bkgclaw verwaltet ab hier sein eigenes git")?;
+        gitops::commit(
+            dir,
+            "evolve 0000: kernel-baseline — bkgclaw verwaltet ab hier sein eigenes git",
+        )?;
     } else if gitops::commit(dir, "evolve 0000: kernel-baseline — leerer start").is_err() {
         // Nothing to commit and nothing to say: a fresh repo with nothing
         // in it still needs a root commit for branches to stand on.
@@ -611,8 +628,14 @@ mod tests {
         // cross into the file's mount.
         let vars = vec![
             ("BKGCLAW_HOME".to_string(), "/var/lib/bkgclaw".to_string()),
-            ("NIM_API_KEY_FILE".to_string(), "/run/secrets/nim_api_key".to_string()),
-            ("BKGCLAW_GATEWAY_TOKEN_FILE".to_string(), "/run/secrets/gateway_token".to_string()),
+            (
+                "NIM_API_KEY_FILE".to_string(),
+                "/run/secrets/nim_api_key".to_string(),
+            ),
+            (
+                "BKGCLAW_GATEWAY_TOKEN_FILE".to_string(),
+                "/run/secrets/gateway_token".to_string(),
+            ),
         ];
         let roots = extra_read_roots(vars.into_iter());
         assert!(roots.contains(&"/var/lib/bkgclaw".to_string()));
@@ -675,10 +698,19 @@ mod tests {
     fn the_prompt_names_the_rules_that_matter() {
         let lessons = vec!["- versuch 1 (reverted, 10/2 tests): tests vergessen".to_string()];
         let prompt = evolve_prompt(Path::new("/repo"), "lesegeschwindigkeit", &lessons);
-        assert!(prompt.contains("Exit-Codes"), "das urteil muss exit-codes heißen");
-        assert!(prompt.contains("KEINE git-Befehle"), "der agent committet nicht selbst");
+        assert!(
+            prompt.contains("Exit-Codes"),
+            "das urteil muss exit-codes heißen"
+        );
+        assert!(
+            prompt.contains("KEINE git-Befehle"),
+            "der agent committet nicht selbst"
+        );
         assert!(prompt.contains("lesegeschwindigkeit"));
-        assert!(prompt.contains("tests vergessen"), "lehren müssen mitreisen");
+        assert!(
+            prompt.contains("tests vergessen"),
+            "lehren müssen mitreisen"
+        );
     }
 
     #[test]
@@ -689,7 +721,11 @@ mod tests {
         let registry = bkgclaw_core::tools::builtin_tools();
         assert_eq!(
             registry
-                .gate("execute_command", Policy::AllowReadOnly, &Default::default())
+                .gate(
+                    "execute_command",
+                    Policy::AllowReadOnly,
+                    &Default::default()
+                )
                 .decision,
             bkgclaw_core::tools::Decision::Deny
         );

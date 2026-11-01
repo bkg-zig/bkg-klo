@@ -177,13 +177,14 @@ pub async fn daemon(push: bool, strict: bool, seed_goal: Option<&str>) -> Outcom
 pub fn seed(goal: &str) -> Outcome {
     let home = bkgclaw_store::home_root();
     match bkg_evolve::seed(&home, goal) {
-        Ok(()) => Outcome::from_report(bkgclaw_ui::Report::ok(format!(
-            "ziel eingereiht: {goal}"
-        ))
-        .with_data(serde_json::json!({
-            "goal": goal,
-            "queue": bkg_evolve::queue_path(&home).display().to_string(),
-        }))),
+        Ok(()) => Outcome::from_report(
+            bkgclaw_ui::Report::ok(format!("ziel eingereiht: {goal}")).with_data(
+                serde_json::json!({
+                    "goal": goal,
+                    "queue": bkg_evolve::queue_path(&home).display().to_string(),
+                }),
+            ),
+        ),
         Err(error) => Outcome::fail(Verdict::environment(error)),
     }
 }
@@ -271,7 +272,8 @@ pub async fn work() -> Outcome {
         }
     };
 
-    let parsed: serde_json::Value = serde_json::from_str(&briefing).unwrap_or(serde_json::json!({}));
+    let parsed: serde_json::Value =
+        serde_json::from_str(&briefing).unwrap_or(serde_json::json!({}));
     let goal = parsed["goal"].as_str().unwrap_or_default().to_string();
     let lessons: Vec<String> = parsed["lessons"]
         .as_array()

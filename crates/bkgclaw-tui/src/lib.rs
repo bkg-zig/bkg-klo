@@ -109,7 +109,15 @@ pub async fn run(config: TuiConfig) -> Result<(), String> {
     let token = bkgclaw_core::wiring::credential("BKGCLAW_GATEWAY_TOKEN");
     let session = match &config.resume {
         Some(id) => id.clone(),
-        None => net::create_session(&base, config.model.clone(), config.policy.clone(), token.as_deref()).await?,
+        None => {
+            net::create_session(
+                &base,
+                config.model.clone(),
+                config.policy.clone(),
+                token.as_deref(),
+            )
+            .await?
+        }
     };
     let (socket, events) = net::connect(&base, token).await?;
     net::send(
@@ -189,7 +197,7 @@ async fn event_loop(
                         Ok(sessions) => state.sessions = sessions,
                         Err(error) => state.status = error,
                     }
-                },
+                }
                 Cmd::Ws(message) => net::send(&socket, message),
             }
         }

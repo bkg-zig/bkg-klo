@@ -222,6 +222,7 @@ dependencies = [
  "bkgclaw-core",
  "bkgclaw-exec",
  "bkgclaw-gateway",
+ "bkgclaw-office",
  "bkgclaw-store",
  "bkgclaw-tui",
  "bkgclaw-ui",
@@ -281,6 +282,7 @@ dependencies = [
  "bkg-evolve",
  "bkgclaw-core",
  "bkgclaw-exec",
+ "bkgclaw-office",
  "bkgclaw-protocol",
  "bkgclaw-store",
  "futures-util",
@@ -307,9 +309,12 @@ dependencies = [
 name = "bkgclaw-office"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "bkgclaw-core",
  "ratatui",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -2115,6 +2120,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",

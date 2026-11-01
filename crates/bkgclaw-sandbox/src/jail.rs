@@ -226,8 +226,8 @@ pub fn run(config: &Config, working_dir: &Path, argv: &[String]) -> JailOutcome 
         // crate documents pre_exec for. Failure aborts the exec.
         unsafe {
             command.pre_exec(move || {
-                let ruleset = build_ruleset(abi, &read_roots, &write_paths)
-                    .map_err(std::io::Error::other)?;
+                let ruleset =
+                    build_ruleset(abi, &read_roots, &write_paths).map_err(std::io::Error::other)?;
                 // `restrict_self` is landlock 0.4's apply: the ruleset
                 // becomes binding for this process and everything it execs.
                 ruleset

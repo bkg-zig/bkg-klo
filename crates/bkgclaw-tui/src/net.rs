@@ -6,7 +6,10 @@ use bkgclaw_gateway::events::ClientMessage;
 use futures_util::{SinkExt, StreamExt};
 
 /// One session row as the Sessions overlay shows it.
-pub async fn fetch_sessions(base: &str, token: Option<&str>) -> Result<Vec<(String, String)>, String> {
+pub async fn fetch_sessions(
+    base: &str,
+    token: Option<&str>,
+) -> Result<Vec<(String, String)>, String> {
     let url = format!("{base}/api/sessions");
     let client = reqwest::Client::new();
     let mut req = client.get(&url);

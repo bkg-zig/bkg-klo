@@ -7,7 +7,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line as TextLine, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
-use crate::office::{OfficePanel, OFFICE_HEIGHT};
+use crate::office::{OFFICE_HEIGHT, OfficePanel};
 use crate::state::{Line, Modal, TuiState};
 
 /// Render one full frame.
