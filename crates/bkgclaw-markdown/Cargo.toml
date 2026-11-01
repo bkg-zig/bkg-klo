@@ -1,0 +1,53 @@
+[package]
+name = "bkgclaw-markdown"
+description = "Markdown to a target-neutral intermediate form, with ratatui and HTML backends. One parse, two renderers."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+# Not optional: a CJK ideograph is two terminal columns and a combining mark is
+# zero. `chars().count()` gets both wrong, and every layout decision in the
+# terminal backend flows through the width calculation.
+unicode-width = "0.2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# ratatui pulls crossterm in, and crossterm does not compile for wasm32 — it
+# reaches for raw terminal syscalls. So the terminal backend is a feature, not
+# a default: the browser cockpit gets the IR and the html backend, and never
+# touches a terminal library.
+#
+# This is the crate-split's one real cost, and it is worth naming: without the
+# gate, `cargo check --target wasm32-unknown-unknown` in bkgclaw-web fails with
+# twenty errors inside crossterm, none of which mention Markdown.
+[dependencies.ratatui]
+version = "0.29"
+optional = true
+# `serde` makes `ratatui::style::Color` serialisable — the Theme struct is
+# persisted, and without it Color has no Serialize impl.
+features = ["serde"]
+
+[features]
+# `terminal` is on by default: this crate is used from the TUI, and a consumer
+# that wants only the browser side writes
+# `default-features = false`. One line, stated explicitly, beats two Cargo
+# files that silently disagree about which backends exist.
+default = ["terminal"]
+terminal = ["dep:ratatui"]
+# Feature-gated syntax highlighting via syntect. Off by default: the syntax
+# assets weigh 368 KB, which is nothing in a native binary and visible in a
+# WASM download.
+syntax = ["dep:syntect", "terminal"]
+
+[dependencies.syntect]
+version = "5.3"
+optional = true
+default-features = false
+# regex-fancy, not regex-onig: onig is a C library (oniguruma) and would break
+# the browser build. fancy-regex is pure Rust. The WASM probe in /tmp/wasmprobe
+# compiled this exact combination.
+features = ["parsing", "default-syntaxes", "default-themes", "dump-load", "regex-fancy"]

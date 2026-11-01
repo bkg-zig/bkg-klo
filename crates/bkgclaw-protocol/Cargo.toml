@@ -1,0 +1,15 @@
+[package]
+name = "bkgclaw-protocol"
+description = "The wire contract: one JSON shape for WebSocket, event log and REST — shared by the daemon, the TUI and the browser cockpit."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# serde is the whole dependency list, on purpose: this crate must compile for
+# the daemon, the terminal and wasm32 alike. Anything heavier would break the
+# browser build, and the browser build is the reason this crate exists.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

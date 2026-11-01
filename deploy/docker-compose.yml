@@ -1,0 +1,123 @@
+# bkgclaw — gateway + web cockpit + the self-improvement daemon.
+#
+# Canonical runtime location: /srv/bkg/services/bkgclaw (BKG service rules);
+# install with deploy/install.sh, which copies this file there next to its
+# secrets. Build input: the repository checkout below.
+#
+#   open http://127.0.0.1:8788/?token=$(cat /srv/bkg/services/bkgclaw/secrets/gateway_token.txt)
+#   docker compose -f /srv/bkg/services/bkgclaw/docker-compose.yml logs -f evolve
+#
+# Why a token at all: the gateway treats "no token configured" as "trust the
+# loopback binding". Inside a container that boundary is the *published port*,
+# so the token is what actually keeps the API shut. It is a Docker secret —
+# never an image layer, never a compose default.
+
+name: bkgclaw
+
+secrets:
+  gateway_token:
+    file: ./secrets/gateway_token.txt
+  nim_api_key:
+    # The operator's key vault — referenced, never copied (BKG secret rules).
+    file: /srv/bkg/privat/docs/api-keys/nim-eysho
+  gh_token:
+    file: ./secrets/gh_token.txt
+
+services:
+  gateway:
+    build:
+      context: /home/workspace/bkg-projects/v1/bkgclaw
+      dockerfile: deploy/Dockerfile
+    image: bkgclaw:dev
+    container_name: bkgclaw-gateway
+    # `unless-stopped`, not `always`: a stack the operator deliberately
+    # stopped should stay stopped across a daemon restart.
+    restart: unless-stopped
+    # Loopback only. Docker publishes on 0.0.0.0 without the prefix, and the
+    # whole API — sessions, prompts, keys — would be on the network.
+    ports:
+      - "127.0.0.1:8788:8788"
+    # The container's network is not the operator's loopback: the daemon
+    # must bind the container's own address for the published port to see
+    # anything. The token middleware is the boundary now, not the bind.
+    command:
+      - bkgclaw
+      - gateway
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8788"
+    environment:
+      BKGCLAW_HOME: /var/lib/bkgclaw
+      BKGCLAW_WORKSPACE: /var/lib/bkgclaw/workspace
+      BKGCLAW_WEB_DIR: /srv/bkgclaw/web
+      # Docker secrets land in files; the gateway reads them through the
+      # `${VAR}_FILE` convention (see bkgclaw-core::wiring::credential).
+      BKGCLAW_GATEWAY_TOKEN_FILE: /run/secrets/gateway_token
+      NIM_API_KEY_FILE: /run/secrets/nim_api_key
+      # The operator's skill packages, mounted read-only below — the Skills
+      # panel shows what the host gateway shows.
+      BKGCLAW_SKILLS_PATHS: /srv/bkgclaw/packages/labertasche:/srv/bkgclaw/packages/shout/shouts
+    volumes:
+      # Sessions, memory, the evolve queue, archive and changelog. Shared
+      # with the daemon on purpose: the panel and the daemon must read the
+      # same files, or the panel is fiction.
+      - bkgclaw-data:/var/lib/bkgclaw
+      - /home/workspace/bkg-projects/v1/packages:/srv/bkgclaw/packages:ro
+    secrets:
+      - gateway_token
+      - nim_api_key
+    healthcheck:
+      # Deliberately unauthenticated: /api/health sits outside the auth
+      # router, and a liveness probe must not need the secret.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8788/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks:
+      bkg_net:
+        ipv4_address: 172.30.0.150
+
+  # The self-improvement loop. Its own container on purpose: the daemon
+  # commits and can `git reset --hard` — inside its own cloned tree in its
+  # own volume, never in the host checkout.
+  evolve:
+    image: bkgclaw:dev
+    container_name: bkgclaw-evolve
+    restart: unless-stopped
+    environment:
+      BKGCLAW_HOME: /var/lib/bkgclaw
+      NIM_API_KEY_FILE: /run/secrets/nim_api_key
+      # main and master carry the running deployments; a reset on either
+      # would be an outage, not an edit.
+      BKGCLAW_PROTECTED_BRANCHES: main,master
+      # The image's CARGO_HOME belongs to root; the fitness gate runs cargo
+      # as `bkg` and needs a writable registry. It lives in the shared data
+      # volume so dependency downloads survive more than one cycle.
+      CARGO_HOME: /var/lib/bkgclaw/cargo-home
+    volumes:
+      - bkgclaw-data:/var/lib/bkgclaw
+      # The daemon's own git working tree — cloned from the image checkout
+      # on first start, branches and resets land here and nowhere else.
+      - bkgclaw-evolve-tree:/var/bkgclaw-evolve-tree
+    secrets:
+      - nim_api_key
+      - gh_token
+    # The daemon never returns; its liveness is the changelog the gateway
+    # serves and `docker compose logs -f evolve`.
+    command: ["/usr/local/bin/evolve-start.sh"]
+    networks:
+      bkg_net:
+        ipv4_address: 172.30.0.151
+
+networks:
+  # §1.4: no parallel bridge — the core network is external and shared.
+  bkg_net:
+    external: true
+
+volumes:
+  bkgclaw-data:
+    name: bkgclaw-data
+  bkgclaw-evolve-tree:
+    name: bkgclaw-evolve-tree

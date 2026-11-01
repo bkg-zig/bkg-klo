@@ -10,6 +10,8 @@ authors.workspace = true
 [dependencies]
 bkgclaw-core = { workspace = true }
 bkgclaw-gateway = { workspace = true }
+bkgclaw-markdown = { workspace = true }
+bkgclaw-office = { workspace = true }
 bkgclaw-store = { workspace = true }
 crossterm = "0.29"
 futures-util = { workspace = true }

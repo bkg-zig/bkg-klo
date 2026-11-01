@@ -109,6 +109,14 @@ pub fn hard_reset(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The daemon's "no push remote" check reads this rather than its own
+/// options: a tree cloned from a checkout already carries the origin URL.
+pub fn remote_url(dir: &Path, name: &str) -> Option<String> {
+    git(dir, &["remote", "get-url", name])
+        .ok()
+        .filter(|url| !url.is_empty())
+}
+
 pub fn remote_add_origin(dir: &Path, url: &str) -> Result<(), String> {
     // Idempotent: setting an existing remote again is a config update, not
     // an error worth failing an evolution push over.

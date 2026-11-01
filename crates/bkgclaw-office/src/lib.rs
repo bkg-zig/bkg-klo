@@ -1,6 +1,21 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+// Agent-office rendering ported from upstream bkgclaw: every running
+// session as a figure at a desk (room model, figures, pixel/Braille
+// renderers). Namespaced under modules so it does not clash with the
+// floor/harness `Office` below. Terminal renderers need ratatui and
+// sit behind the `terminal` feature.
+#[cfg(feature = "terminal")]
+pub mod braille;
+pub mod figure;
+pub mod pixels;
+pub mod portrait;
+pub mod room;
+#[cfg(feature = "terminal")]
+pub mod scene;
+pub mod sprite;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Office {
     pub width: usize,

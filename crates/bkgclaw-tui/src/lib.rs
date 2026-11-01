@@ -12,6 +12,7 @@
 #![forbid(unsafe_code)]
 
 pub mod net;
+pub mod office;
 pub mod state;
 pub mod ui;
 
